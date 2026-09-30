@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Platform } from 'react-native';
 import { io, Socket } from 'socket.io-client';
+import { soundService } from '../services/sound';
 
 // Địa chỉ backend mặc định: Android emulator dùng 10.0.2.2, iOS/Web dùng localhost
 const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
@@ -42,6 +43,15 @@ export function getSocket(config: SocketConfig = {}): Socket {
 
     sharedSocket.on('connect_error', (error) => {
       console.warn('⚠️ [useSocket] Connection error:', error.message);
+    });
+
+    // Task B-003: Lắng nghe đơn mới và thanh toán thành công để phát chuông & rung cảnh báo
+    sharedSocket.on('order:new', () => {
+      soundService.playNewOrderAlert();
+    });
+
+    sharedSocket.on('payment:completed', () => {
+      soundService.playPaymentCompleteAlert();
     });
   }
 

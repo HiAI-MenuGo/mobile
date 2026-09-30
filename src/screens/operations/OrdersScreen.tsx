@@ -26,6 +26,7 @@ import { LiveOrder, LiveOrderStatus } from '../../types';
 import { useMenuStore } from '../../data/menuStore';
 import { api } from '../../services/api';
 import { useSocketEvent } from '../../hooks/useSocket';
+import { soundService } from '../../services/sound';
 
 export interface OrdersScreenProps {
   orders?: LiveOrder[];
@@ -312,9 +313,10 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
       });
   }, []);
 
-  // Lắng nghe Socket.IO sự kiện đơn hàng live (Task B-006)
+  // Lắng nghe Socket.IO sự kiện đơn hàng live (Task B-006 & Task B-003)
   useSocketEvent('order:new', (newOrder: LiveOrder) => {
     console.log('⚡ [OrdersScreen] New order received via Socket:', newOrder.code);
+    soundService.playNewOrderAlert();
     setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
   });
 
