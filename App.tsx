@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
-import { View, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, View, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabType, CartItem, MenuItem, OperationSubView } from './src/types';
+import { theme } from './src/theme';
 import { BottomNav } from './src/components/BottomNav';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { RevenueScreen } from './src/screens/RevenueScreen';
 import { OperationsScreen } from './src/screens/OperationsScreen';
 import { NotificationScreen } from './src/screens/NotificationScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { LoginScreen } from './src/screens/LoginScreen';
+import { useAuthStore } from './src/data/authStore';
 
 function MainApp() {
   const insets = useSafeAreaInsets();
@@ -145,10 +148,30 @@ function MainApp() {
   );
 }
 
+function AuthGate() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const loadFromStorage = useAuthStore((s) => s.loadFromStorage);
+
+  useEffect(() => {
+    loadFromStorage();
+  }, [loadFromStorage]);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background }}>
+        <ActivityIndicator size="large" color={theme.colors.primaryDark} />
+      </View>
+    );
+  }
+  if (!isAuthenticated) return <LoginScreen />;
+  return <MainApp />;
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
-      <MainApp />
+      <AuthGate />
     </SafeAreaProvider>
   );
 }

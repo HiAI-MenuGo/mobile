@@ -1,27 +1,63 @@
 import { Platform } from 'react-native';
-import { LiveOrder, LiveOrderStatus } from '../types';
+import axios from 'axios';
+import { AuthUser, LiveOrder, LiveOrderStatus, LoginResponse } from '../types';
 
 const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL;
 
+// ── Axios instance (Task A-001) — dùng cho các module mới của A ──
+export const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+// Token bộ nhớ (được authStore đồng bộ vào mỗi lần login/logout)
+let inMemoryToken: string | null = null;
+export function setAuthToken(token: string | null) {
+  inMemoryToken = token;
+  if (token) {
+    apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    delete apiClient.defaults.headers.common.Authorization;
+  }
+}
+export function getAuthToken() {
+  return inMemoryToken;
+}
+
+apiClient.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    console.warn('[API axios]', err?.response?.data?.message || err.message);
+    return Promise.reject(err);
+  }
+);
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   try {
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-    });
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...((options.headers as Record<string, string>) || {}),
+    };
+    if (inMemoryToken && !headers.Authorization) {
+      headers.Authorization = `Bearer ${inMemoryToken}`;
+    }
+    const res = await fetch(url, { ...options, headers });
 
     const json = await res.json();
     if (!res.ok || json.success === false) {
-      throw new Error(json.message || `API error ${res.status}`);
+      const error: Error & { status?: number; errorCode?: string } = new Error(
+        json.message || `API error ${res.status}`
+      );
+      error.status = res.status;
+      error.errorCode = json.errorCode;
+      throw error;
     }
     return json.data;
-  } catch (err: any) {
-    console.warn(`[API] Error fetching ${endpoint}:`, err.message);
+  } catch (err: unknown) {
+    console.warn(`[API] Error fetching ${endpoint}:`, (err as Error).message);
     throw err;
   }
 }
@@ -147,6 +183,33 @@ export const api = {
     request(`/api/ingredients/${id}/adjust`, {
       method: 'PATCH',
       body: JSON.stringify({ ...data, branchId }),
+    }),
+
+  // ── Auth (Task A-002, Thành viên A) ──
+  login: (email: string, password: string) =>
+    request<LoginResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  refreshToken: (refreshToken: string) =>
+    request<LoginResponse>('/api/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }),
+
+  getProfile: () => request<AuthUser>('/api/auth/me'),
+
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request<{ changed: boolean }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    }),
+
+  logout: (refreshToken?: string) =>
+    request<{ loggedOut: boolean }>('/api/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
     }),
 
   // 7. History (Task B-013)
