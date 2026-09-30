@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
+  RefreshControl,
 } from 'react-native';
 import {
   UtensilsCrossed,
@@ -17,8 +18,11 @@ import {
 import { MenuItem, CartItem, TabType, OperationSubView } from '../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMenuStore } from '../data/menuStore';
+import { api } from '../services/api';
+import { useSocketEvent } from '../hooks/useSocket';
 import { OrderScreen } from './OrderScreen';
 import { OrdersScreen } from './operations/OrdersScreen';
+import { TablesScreen } from './operations/TablesScreen';
 import { CashierScreen } from './operations/CashierScreen';
 import { SoldOutScreen } from './operations/SoldOutScreen';
 import { InventoryScreen } from './operations/InventoryScreen';
@@ -71,14 +75,64 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
   });
 
   const toggleSoldOut = (id: string) => {
+    const nextVal = !soldOutState[id];
     setSoldOutState((prev) => ({
       ...prev,
-      [id]: !prev[id],
+      [id]: nextVal,
     }));
+
+    // Gọi API cập nhật trạng thái hết món (Task B-011)
+    api.toggleSoldOut(id, nextVal).catch((err) => {
+      console.warn('[OperationsScreen] Failed to toggle sold out via API:', err.message);
+    });
   };
 
   const soldOutCount = Object.values(soldOutState).filter(Boolean).length;
   const totalCartCount = cart.reduce((sum, c) => sum + c.quantity, 0);
+
+  // Số liệu tổng hợp thời gian thực từ API (Task B-004)
+  const [summary, setSummary] = useState({
+    pendingOrders: 1,
+    pendingPayment: 2,
+    soldOutCount: 2,
+    menuItemCount: menuItems.length,
+  });
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchSummary = useCallback(async () => {
+    try {
+      const data = await api.getActiveSummary();
+      if (data) {
+        setSummary(data);
+      }
+    } catch (err: any) {
+      console.log('[OperationsScreen] Fallback to local summary');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
+
+  // Cập nhật lại badge khi nhận sự kiện Socket.IO (Task B-004, B-011)
+  useSocketEvent('order:new', fetchSummary);
+  useSocketEvent('order:updated', fetchSummary);
+  useSocketEvent('payment:completed', fetchSummary);
+  useSocketEvent('sold_out:updated', (payload: { itemId: string; isSoldOut: boolean }) => {
+    if (payload?.itemId) {
+      setSoldOutState((prev) => ({
+        ...prev,
+        [payload.itemId]: payload.isSoldOut,
+      }));
+    }
+    fetchSummary();
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchSummary();
+    setRefreshing(false);
+  };
 
   // Xử lý khi người dùng chọn "Sửa đơn" từ lịch sử đơn hàng
   const handleEditHistoryOrder = (order: OrderHistoryItem) => {
@@ -127,7 +181,17 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     );
   }
 
-  if (currentView === 'tables' || currentView === 'orders') {
+  if (currentView === 'tables') {
+    return (
+      <TablesScreen
+        onBack={() => handleSetView('hub')}
+        onNavigateToOrder={() => handleSetView('order')}
+        onNavigateToCashier={() => handleSetView('cashier')}
+      />
+    );
+  }
+
+  if (currentView === 'orders') {
     return (
       <OrdersScreen
         onBack={() => handleSetView('hub')}
@@ -179,16 +243,29 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
       action: () => handleSetView('order'),
     },
     {
-      id: 'tables',
+      id: 'orders',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Quản Lý Đơn Hàng',
+      title: 'Quản Lý Đơn Hàng Live',
       icon: ClipboardList,
       color: '#2563EB',
       bgColor: '#EFF6FF',
       borderColor: '#BFDBFE',
-      badge: 'Đang chờ & chế biến',
+      badge: `${summary.pendingOrders} đang chờ`,
       badgeColor: '#2563EB',
       badgeBg: '#EFF6FF',
+      action: () => handleSetView('orders'),
+    },
+    {
+      id: 'tables',
+      group: 'BÁN HÀNG & PHỤC VỤ',
+      title: 'Sơ Đồ Bàn Ăn',
+      icon: UtensilsCrossed,
+      color: '#D97706',
+      bgColor: '#FFFBEB',
+      borderColor: '#FDE68A',
+      badge: 'Sơ đồ live',
+      badgeColor: '#D97706',
+      badgeBg: '#FEF3C7',
       action: () => handleSetView('tables'),
     },
     {
@@ -199,7 +276,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
       color: '#7C3AED',
       bgColor: '#FAF5FF',
       borderColor: '#E9D5FF',
-      badge: '3 đơn chờ thanh toán',
+      badge: `${summary.pendingPayment} đơn chờ thanh toán`,
       badgeColor: '#7C3AED',
       badgeBg: '#FAF5FF',
       action: () => handleSetView('cashier'),
@@ -212,9 +289,9 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
       color: '#059669',
       bgColor: '#ECFDF5',
       borderColor: '#A7F3D0',
-      badge: `${menuItems.length} món • ${soldOutCount} tạm hết`,
-      badgeColor: soldOutCount > 0 ? '#E11D48' : '#059669',
-      badgeBg: soldOutCount > 0 ? '#FFF1F2' : '#ECFDF5',
+      badge: `${summary.menuItemCount} món • ${summary.soldOutCount} tạm hết`,
+      badgeColor: summary.soldOutCount > 0 ? '#E11D48' : '#059669',
+      badgeBg: summary.soldOutCount > 0 ? '#FFF1F2' : '#ECFDF5',
       action: () => handleSetView('sold_out'),
     },
     {
@@ -261,10 +338,11 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
         <Text className="text-[20px] font-extrabold text-textMain">Trung Tâm Thao Tác</Text>
       </View>
 
-      {/* Main Content Scroll */}
+      {/* Main Content Scroll với RefreshControl (Task B-004) */}
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingTop: 14, paddingBottom: dynamicContentPaddingBottom }}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED', '#059669']} />}
       >
         {/* Danh sách các tính năng được phân nhóm */}
         {Object.entries(groupedFeatures).map(([groupName, items]) => (
