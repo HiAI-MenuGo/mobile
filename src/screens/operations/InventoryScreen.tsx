@@ -10,6 +10,8 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -18,10 +20,16 @@ import {
   Plus,
   Search,
   X,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  RotateCcw,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { api } from '../../services/api';
+import { useSocketEvent } from '../../hooks/useSocket';
 
-interface Ingredient {
+export interface Ingredient {
   id: string;
   name: string;
   stock: string;
@@ -40,7 +48,6 @@ const AnimatedBottomSheet: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
 }> = ({ visible, onClose, children }) => {
-  const insets = useSafeAreaInsets();
   const [mounted, setMounted] = useState(visible);
   const slideAnim = useRef(new Animated.Value(600)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -85,7 +92,6 @@ const AnimatedBottomSheet: React.FC<{
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         className="flex-1 justify-end"
       >
-        {/* Backdrop FADE */}
         <Animated.View
           className="absolute inset-0 bg-black/40"
           style={{ opacity: fadeAnim }}
@@ -93,20 +99,12 @@ const AnimatedBottomSheet: React.FC<{
           <TouchableOpacity className="flex-1" activeOpacity={1} onPress={onClose} />
         </Animated.View>
 
-        {/* Card SLIDE UP */}
         <Animated.View
-          className="bg-white rounded-t-[32px] px-5 pt-4 border-t border-slate-100"
+          className="bg-white rounded-t-[32px] px-5 pt-4 pb-8 border-t border-slate-100"
           style={{
             transform: [{ translateY: slideAnim }],
-            paddingBottom: Math.max(insets.bottom, 16) + 12,
-            shadowColor: '#0F172A',
-            shadowOffset: { width: 0, height: -4 },
-            shadowOpacity: 0.12,
-            shadowRadius: 16,
-            elevation: 10,
           }}
         >
-          <View className="w-10 h-1 rounded-full bg-slate-300 self-center mb-3.5" />
           {children}
         </Animated.View>
       </KeyboardAvoidingView>
@@ -120,22 +118,139 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
   const contentPaddingBottom = dynamicPaddingBottom + 16;
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'WARNING' | 'OK'>('ALL');
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [ingredients, setIngredients] = useState<Ingredient[]>([
-    { id: '1', name: 'Hạt Cà Phê Robusta Cầu Đất', stock: '12.5 kg', min: '5.0 kg', unit: 'kg', status: 'OK' },
-    { id: '2', name: 'Sữa Tươi Thanh Trùng DalatMilk', stock: '3.2 Lít', min: '6.0 Lít', unit: 'Lít', status: 'WARNING' },
-    { id: '3', name: 'Trà Đen Phúc Long Thượng Hạng', stock: '8.4 kg', min: '3.0 kg', unit: 'kg', status: 'OK' },
-    { id: '4', name: 'Sốt Trứng Muối Hoàng Kim', stock: '0.8 Hộp', min: '2.0 Hộp', unit: 'Hộp', status: 'WARNING' },
-    { id: '5', name: 'Siro Đào Monin 700ml', stock: '4 Chai', min: '2 Chai', unit: 'Chai', status: 'OK' },
-    { id: '6', name: 'Bột Matcha Uji Nhật Bản', stock: '1.5 kg', min: '1.0 kg', unit: 'kg', status: 'OK' },
-    { id: '7', name: 'Đường Nước Mía Tinh Luyện', stock: '15.0 kg', min: '8.0 kg', unit: 'kg', status: 'OK' },
+    { id: 'ing-1', name: 'Hạt Cà Phê Robusta', stock: '18.5 kg', min: '5.0 kg', unit: 'kg', status: 'OK' },
+    { id: 'ing-2', name: 'Sữa Đặc Ngôi Sao', stock: '12 lon', min: '15 lon', unit: 'lon', status: 'WARNING' },
+    { id: 'ing-3', name: 'Trà Xanh Oolong', stock: '3.2 kg', min: '4.0 kg', unit: 'kg', status: 'WARNING' },
+    { id: 'ing-4', name: 'Sữa Tươi Thanh Trùng Barista', stock: '24 hộp 1L', min: '10 hộp 1L', unit: 'hộp 1L', status: 'OK' },
+    { id: 'ing-5', name: 'Đường Mía Tự Nhiên', stock: '45 kg', min: '10 kg', unit: 'kg', status: 'OK' },
+    { id: 'ing-6', name: 'Trân Châu Trắng 3Q', stock: '2.5 kg', min: '5.0 kg', unit: 'kg', status: 'WARNING' },
   ]);
+
+  // Load danh sách tồn kho từ API (Task B-012)
+  const loadIngredients = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getIngredients();
+      if (data && data.length > 0) {
+        setIngredients(
+          data.map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            stock: `${d.quantity} ${d.unit}`,
+            min: `${d.lowStockThreshold} ${d.unit}`,
+            unit: d.unit,
+            status: d.quantity <= d.lowStockThreshold ? 'WARNING' : 'OK',
+          }))
+        );
+      }
+    } catch (err: any) {
+      console.log('[InventoryScreen] Fallback to local stock data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadIngredients();
+  }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadIngredients();
+    setRefreshing(false);
+  };
+
+  // Socket: cảnh báo tồn kho sắp hết
+  useSocketEvent('inventory:warning', (payload: any) => {
+    console.log('⚠️ [InventoryScreen] Low stock warning received:', payload);
+    setIngredients((prev) =>
+      prev.map((i) =>
+        i.id === payload.ingredientId
+          ? { ...i, stock: `${payload.currentStock} ${payload.unit}`, status: 'WARNING' }
+          : i
+      )
+    );
+  });
+
+  // Socket: cập nhật tồn kho
+  useSocketEvent('inventory:updated', (payload: any) => {
+    setIngredients((prev) =>
+      prev.map((i) =>
+        i.id === payload.ingredientId
+          ? { ...i, stock: `${payload.quantity} ${i.unit}` }
+          : i
+      )
+    );
+  });
 
   const warningCount = ingredients.filter((i) => i.status === 'WARNING').length;
 
   // Trang thêm nguyên liệu mới
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
   const [newIngredient, setNewIngredient] = useState({ name: '', unit: 'kg', stock: '', min: '' });
+
+  // Modal điều chỉnh tồn kho (Android & iOS) (Task B-012)
+  const [adjustingItem, setAdjustingItem] = useState<Ingredient | null>(null);
+  const [adjustmentValue, setAdjustmentValue] = useState<string>('');
+  const [adjustmentType, setAdjustmentType] = useState<'ADD' | 'REMOVE' | 'SET'>('SET');
+  const [adjustmentReason, setAdjustmentReason] = useState<string>('Kiểm kê định kỳ');
+  const [adjustLoading, setAdjustLoading] = useState(false);
+
+  const handleOpenAdjust = (item: Ingredient) => {
+    setAdjustingItem(item);
+    const rawQty = item.stock.replace(` ${item.unit}`, '').trim();
+    setAdjustmentValue(rawQty);
+    setAdjustmentType('SET');
+    setAdjustmentReason('Kiểm kê định kỳ');
+  };
+
+  const handleConfirmAdjust = async () => {
+    if (!adjustingItem) return;
+    const num = parseFloat(adjustmentValue);
+    if (isNaN(num)) {
+      Alert.alert('Lỗi', 'Vui lòng nhập số hợp lệ');
+      return;
+    }
+
+    try {
+      setAdjustLoading(true);
+      await api.adjustIngredientStock(adjustingItem.id, {
+        adjustment: num,
+        type: adjustmentType,
+        reason: adjustmentReason,
+      });
+
+      // Update local state
+      const minVal = parseFloat(adjustingItem.min.replace(` ${adjustingItem.unit}`, ''));
+      let finalQty = num;
+      const currentQty = parseFloat(adjustingItem.stock.replace(` ${adjustingItem.unit}`, '')) || 0;
+      if (adjustmentType === 'ADD') finalQty = currentQty + num;
+      if (adjustmentType === 'REMOVE') finalQty = Math.max(0, currentQty - num);
+
+      setIngredients((prev) =>
+        prev.map((i) =>
+          i.id === adjustingItem.id
+            ? {
+                ...i,
+                stock: `${finalQty} ${i.unit}`,
+                status: finalQty <= minVal ? 'WARNING' : 'OK',
+              }
+            : i
+        )
+      );
+
+      setAdjustingItem(null);
+      Alert.alert('Thành công', `Đã cập nhật tồn kho cho "${adjustingItem.name}"!`);
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.message || 'Không thể điều chỉnh tồn kho');
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
 
   const handleAddIngredient = () => {
     if (!newIngredient.name.trim() || !newIngredient.stock.trim() || !newIngredient.min.trim()) {
@@ -149,12 +264,12 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
       return;
     }
     const newItem: Ingredient = {
-      id: Date.now().toString(),
+      id: `ing-${Date.now()}`,
       name: newIngredient.name.trim(),
       stock: `${newIngredient.stock.trim()} ${newIngredient.unit}`,
       min: `${newIngredient.min.trim()} ${newIngredient.unit}`,
       unit: newIngredient.unit,
-      status: stockVal < minVal ? 'WARNING' : 'OK',
+      status: stockVal <= minVal ? 'WARNING' : 'OK',
     };
     setIngredients((prev) => [newItem, ...prev]);
     setNewIngredient({ name: '', unit: 'kg', stock: '', min: '' });
@@ -163,34 +278,9 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
 
   const filteredList = ingredients.filter((item) => {
     const matchSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchFilter =
-      filterType === 'ALL' ? true : item.status === filterType;
+    const matchFilter = filterType === 'ALL' ? true : item.status === filterType;
     return matchSearch && matchFilter;
   });
-
-  const handleQuickAdjust = (item: Ingredient) => {
-    Alert.prompt
-      ? Alert.prompt(
-          'Điều chỉnh tồn kho',
-          `Nhập số lượng tồn kho mới cho "${item.name}":`,
-          [
-            { text: 'Huỷ', style: 'cancel' },
-            {
-              text: 'Lưu',
-              onPress: (val?: string) => {
-                if (val) {
-                  setIngredients((prev) =>
-                    prev.map((i) => (i.id === item.id ? { ...i, stock: `${val} ${i.unit}`, status: 'OK' } : i))
-                  );
-                }
-              },
-            },
-          ],
-          'plain-text',
-          item.stock.replace(` ${item.unit}`, '')
-        )
-      : Alert.alert('Điều chỉnh kho', `Đã cập nhật tồn kho cho "${item.name}"!`);
-  };
 
   return (
     <View className="flex-1 bg-background">
@@ -207,14 +297,22 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
             </TouchableOpacity>
             <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Nguyên Liệu</Text>
           </View>
-          <TouchableOpacity
-            className="w-9 h-9 items-center justify-center ml-2"
-            onPress={() => setIsAddFormVisible(true)}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Plus size={22} color="#10B981" strokeWidth={2.5} />
-          </TouchableOpacity>
+          <View className="flex-row items-center gap-2">
+            <TouchableOpacity
+              className="w-9 h-9 rounded-xl bg-slate-100 items-center justify-center border border-border"
+              onPress={loadIngredients}
+              activeOpacity={0.7}
+            >
+              {loading ? <ActivityIndicator size="small" color="#0F172A" /> : <RefreshCw size={16} color="#0F172A" />}
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="w-9 h-9 items-center justify-center rounded-xl bg-emerald-50 border border-emerald-200"
+              onPress={() => setIsAddFormVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Plus size={20} color="#10B981" strokeWidth={2.5} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Search */}
@@ -222,7 +320,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
           <Search size={16} color="#94A3B8" />
           <TextInput
             className="flex-1 text-[13.5px] font-medium text-textMain p-0"
-            placeholder="Tìm kiếm..."
+            placeholder="Tìm kiếm nguyên liệu..."
             placeholderTextColor="#94A3B8"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -250,13 +348,13 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
 
           <TouchableOpacity
             className={`px-3 py-1.5 rounded-full border ${
-              filterType === 'WARNING' ? 'bg-amber-100 border-amber-500' : 'bg-slate-50 border-border'
+              filterType === 'WARNING' ? 'bg-rose-100 border-rose-300' : 'bg-slate-50 border-border'
             }`}
             onPress={() => setFilterType('WARNING')}
             activeOpacity={0.75}
           >
-            <Text className={`text-[11.5px] font-semibold ${filterType === 'WARNING' ? 'text-amber-700 font-bold' : 'text-textSecondary'}`}>
-              Sắp hết ({warningCount})
+            <Text className={`text-[11.5px] font-semibold ${filterType === 'WARNING' ? 'text-rose-700 font-bold' : 'text-textSecondary'}`}>
+              Cảnh báo thiếu ({warningCount})
             </Text>
           </TouchableOpacity>
 
@@ -268,7 +366,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
             activeOpacity={0.75}
           >
             <Text className={`text-[11.5px] font-semibold ${filterType === 'OK' ? 'text-emerald-600 font-bold' : 'text-textSecondary'}`}>
-              Đủ hàng ({ingredients.length - warningCount})
+              Đủ tồn ({ingredients.length - warningCount})
             </Text>
           </TouchableOpacity>
         </View>
@@ -279,6 +377,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
         className="flex-1"
         contentContainerStyle={{ padding: 16, paddingBottom: contentPaddingBottom, gap: 12 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#D97706']} />}
       >
         {filteredList.map((item) => {
           const isWarning = item.status === 'WARNING';
@@ -287,31 +386,31 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
             <View
               key={item.id}
               className={`bg-white rounded-2xl p-3.5 border shadow-sm ${
-                isWarning ? 'border-amber-200 bg-amber-50/30' : 'border-border'
+                isWarning ? 'border-rose-300 bg-rose-50/25' : 'border-border'
               }`}
             >
               <View className="flex-row justify-between items-start mb-3">
                 <View className="flex-row items-center flex-1 mr-2.5">
                   <View className={`w-[38px] h-[38px] rounded-xl items-center justify-center mr-2.5 ${
-                    isWarning ? 'bg-amber-100' : 'bg-emerald-50'
+                    isWarning ? 'bg-rose-100' : 'bg-emerald-50'
                   }`}>
                     {isWarning ? (
-                      <AlertTriangle size={18} color="#D97706" />
+                      <AlertTriangle size={18} color="#E11D48" />
                     ) : (
                       <Package size={18} color="#10B981" />
                     )}
                   </View>
                   <View className="flex-1">
                     <Text className="text-sm font-bold text-textMain">{item.name}</Text>
-                    <Text className="text-[11px] text-textSecondary mt-0.5">Định mức tối thiểu: {item.min}</Text>
+                    <Text className="text-[11px] text-textSecondary mt-0.5">Định mức an toàn: {item.min}</Text>
                   </View>
                 </View>
 
                 <View className={`px-2 py-0.5 rounded-lg border ${
-                  isWarning ? 'bg-amber-100 border-amber-200' : 'bg-emerald-50 border-emerald-200'
+                  isWarning ? 'bg-rose-100 border-rose-200' : 'bg-emerald-50 border-emerald-200'
                 }`}>
                   <Text className={`text-[11px] font-bold ${
-                    isWarning ? 'text-amber-700' : 'text-emerald-600'
+                    isWarning ? 'text-rose-700' : 'text-emerald-600'
                   }`}>
                     {isWarning ? 'Sắp hết' : 'Đủ hàng'}
                   </Text>
@@ -321,23 +420,125 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
               <View className="flex-row justify-between items-center border-t border-slate-100 pt-2.5">
                 <View className="flex-row items-baseline gap-1.5">
                   <Text className="text-xs text-textSecondary">Tồn kho hiện tại:</Text>
-                  <Text className={`text-[15px] font-extrabold ${isWarning ? 'text-amber-600' : 'text-textMain'}`}>
+                  <Text className={`text-[15px] font-black ${isWarning ? 'text-rose-600' : 'text-textMain'}`}>
                     {item.stock}
                   </Text>
                 </View>
 
                 <TouchableOpacity
                   className="bg-slate-100 px-3 py-1.5 rounded-xl border border-border"
-                  onPress={() => handleQuickAdjust(item)}
+                  onPress={() => handleOpenAdjust(item)}
                   activeOpacity={0.8}
                 >
-                  <Text className="text-xs font-bold text-textMain">Điều chỉnh tồn</Text>
+                  <Text className="text-xs font-bold text-textMain">Kiểm kê / Sửa</Text>
                 </TouchableOpacity>
               </View>
             </View>
           );
         })}
       </ScrollView>
+
+      {/* Modal Điều Chỉnh Tồn Kho Chuẩn Android / iOS (Task B-012) */}
+      {adjustingItem && (
+        <Modal visible={!!adjustingItem} transparent animationType="fade">
+          <View className="flex-1 bg-slate-900/60 justify-center items-center p-5">
+            <View className="w-full max-w-[360px] bg-white rounded-3xl p-5 shadow-xl">
+              <View className="flex-row justify-between items-start mb-3">
+                <View>
+                  <Text className="text-[17px] font-extrabold text-textMain">Điều Chỉnh Tồn Kho</Text>
+                  <Text className="text-xs text-textSecondary mt-0.5">{adjustingItem.name}</Text>
+                </View>
+                <TouchableOpacity
+                  className="w-8 h-8 rounded-full bg-slate-100 items-center justify-center"
+                  onPress={() => setAdjustingItem(null)}
+                >
+                  <X size={18} color="#0F172A" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Loại thao tác: SET / ADD / REMOVE */}
+              <View className="flex-row gap-2 mb-3">
+                <TouchableOpacity
+                  className={`flex-1 py-2 rounded-xl items-center border ${
+                    adjustmentType === 'SET' ? 'bg-primary border-primary' : 'bg-slate-50 border-border'
+                  }`}
+                  onPress={() => setAdjustmentType('SET')}
+                >
+                  <Text className={`text-xs font-bold ${adjustmentType === 'SET' ? 'text-white' : 'text-textMain'}`}>
+                    Cập nhật mới
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className={`flex-1 py-2 rounded-xl items-center border ${
+                    adjustmentType === 'ADD' ? 'bg-emerald-600 border-emerald-600' : 'bg-slate-50 border-border'
+                  }`}
+                  onPress={() => setAdjustmentType('ADD')}
+                >
+                  <Text className={`text-xs font-bold ${adjustmentType === 'ADD' ? 'text-white' : 'text-textMain'}`}>
+                    + Nhập thêm
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className={`flex-1 py-2 rounded-xl items-center border ${
+                    adjustmentType === 'REMOVE' ? 'bg-rose-600 border-rose-600' : 'bg-slate-50 border-border'
+                  }`}
+                  onPress={() => setAdjustmentType('REMOVE')}
+                >
+                  <Text className={`text-xs font-bold ${adjustmentType === 'REMOVE' ? 'text-white' : 'text-textMain'}`}>
+                    - Xuất / Hao
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Số lượng */}
+              <View className="mb-3">
+                <Text className="text-xs font-bold text-textSecondary mb-1.5">
+                  Số lượng ({adjustingItem.unit})
+                </Text>
+                <TextInput
+                  className="bg-slate-50 border border-border rounded-xl px-3.5 py-2.5 text-base font-bold text-textMain"
+                  keyboardType="numeric"
+                  value={adjustmentValue}
+                  onChangeText={setAdjustmentValue}
+                  placeholder="0"
+                />
+              </View>
+
+              {/* Lý do */}
+              <View className="mb-4">
+                <Text className="text-xs font-bold text-textSecondary mb-1.5">Lý do điều chỉnh</Text>
+                <View className="flex-row flex-wrap gap-1.5">
+                  {['Kiểm kê định kỳ', 'Nhập kho mới', 'Làm đổ / Hỏng', 'Hao hụt tự nhiên'].map((r) => (
+                    <TouchableOpacity
+                      key={r}
+                      className={`px-2.5 py-1 rounded-lg border ${
+                        adjustmentReason === r ? 'bg-slate-800 border-slate-800' : 'bg-slate-50 border-border'
+                      }`}
+                      onPress={() => setAdjustmentReason(r)}
+                    >
+                      <Text className={`text-[11px] font-semibold ${adjustmentReason === r ? 'text-white' : 'text-textSecondary'}`}>
+                        {r}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                className="bg-primary rounded-xl py-3 items-center justify-center active:bg-primaryDark"
+                onPress={handleConfirmAdjust}
+                disabled={adjustLoading}
+              >
+                {adjustLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text className="text-white text-xs font-bold">Lưu Thay Đổi Tồn Kho</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {/* Tab trượt từ dưới - Thêm nguyên liệu */}
       <AnimatedBottomSheet visible={isAddFormVisible} onClose={() => setIsAddFormVisible(false)}>
@@ -371,7 +572,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
             <View className="h-[52px] bg-slate-50 rounded-2xl px-4 border border-slate-200 justify-center">
               <TextInput
                 className="text-[15px] text-textMain font-semibold p-0"
-                placeholder="kg, Lít, Hộp, Chai..."
+                placeholder="kg, lon, Lít, Hộp, Chai..."
                 placeholderTextColor="#94A3B8"
                 value={newIngredient.unit}
                 onChangeText={(t) => setNewIngredient({ ...newIngredient, unit: t })}
@@ -394,7 +595,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
               </View>
             </View>
             <View className="flex-1">
-              <Text className="text-[13.5px] font-bold text-slate-800 mb-1.5">Định mức tối thiểu</Text>
+              <Text className="text-[13.5px] font-bold text-slate-800 mb-1.5">Định mức an toàn</Text>
               <View className="h-[52px] bg-slate-50 rounded-2xl px-4 border border-slate-200 justify-center">
                 <TextInput
                   className="text-[15px] text-textMain font-semibold p-0"

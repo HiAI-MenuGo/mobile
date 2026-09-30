@@ -22,6 +22,7 @@ import { api } from '../services/api';
 import { useSocketEvent } from '../hooks/useSocket';
 import { OrderScreen } from './OrderScreen';
 import { OrdersScreen } from './operations/OrdersScreen';
+import { TablesScreen } from './operations/TablesScreen';
 import { CashierScreen } from './operations/CashierScreen';
 import { SoldOutScreen } from './operations/SoldOutScreen';
 import { InventoryScreen } from './operations/InventoryScreen';
@@ -180,7 +181,17 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     );
   }
 
-  if (currentView === 'tables' || currentView === 'orders') {
+  if (currentView === 'tables') {
+    return (
+      <TablesScreen
+        onBack={() => handleSetView('hub')}
+        onNavigateToOrder={() => handleSetView('order')}
+        onNavigateToCashier={() => handleSetView('cashier')}
+      />
+    );
+  }
+
+  if (currentView === 'orders') {
     return (
       <OrdersScreen
         onBack={() => handleSetView('hub')}
@@ -232,9 +243,9 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
       action: () => handleSetView('order'),
     },
     {
-      id: 'tables',
+      id: 'orders',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Quản Lý Đơn Hàng',
+      title: 'Quản Lý Đơn Hàng Live',
       icon: ClipboardList,
       color: '#2563EB',
       bgColor: '#EFF6FF',
@@ -242,6 +253,19 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
       badge: `${summary.pendingOrders} đang chờ`,
       badgeColor: '#2563EB',
       badgeBg: '#EFF6FF',
+      action: () => handleSetView('orders'),
+    },
+    {
+      id: 'tables',
+      group: 'BÁN HÀNG & PHỤC VỤ',
+      title: 'Sơ Đồ Bàn Ăn',
+      icon: UtensilsCrossed,
+      color: '#D97706',
+      bgColor: '#FFFBEB',
+      borderColor: '#FDE68A',
+      badge: 'Sơ đồ live',
+      badgeColor: '#D97706',
+      badgeBg: '#FEF3C7',
       action: () => handleSetView('tables'),
     },
     {
