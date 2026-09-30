@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,6 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  RefreshControl,
-  ActivityIndicator,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -19,11 +17,9 @@ import {
   RotateCcw,
   Trash2,
   MoreVertical,
-  RefreshCw,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHistoryStore, OrderHistoryItem } from '../../data/historyStore';
-import { api } from '../../services/api';
 export { OrderHistoryItem };
 
 interface HistoryScreenProps {
@@ -39,49 +35,9 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onBack, onEditOrde
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'COMPLETED' | 'VOIDED'>('ALL');
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
-  };
-
-  const loadHistory = useCallback(async (search?: string) => {
-    try {
-      setLoading(true);
-      const res = await api.getOrderHistory({ search, limit: 20 });
-      if (res && res.orders && res.orders.length > 0) {
-        const addOrder = useHistoryStore.getState().addOrder;
-        res.orders.forEach((o) => {
-          if (!orders.some((existing) => existing.id === o.code || existing.id === o.id)) {
-            addOrder({
-              id: o.code,
-              table: (o as any).tableName || ((o as any).tableId ? `Bàn ${(o as any).tableId}` : o.customerName || 'Mang về'),
-              time: o.time,
-              total: o.total,
-              status: o.status === 'DONE' ? 'COMPLETED' : 'VOIDED',
-              method: o.paymentMethod === 'VIETQR' ? 'VietQR' : 'Tiền mặt',
-              staff: o.customerName || 'Nhân viên',
-              items: o.items.map((it) => ({ name: it.name, qty: it.quantity, price: it.price })),
-            });
-          }
-        });
-      }
-    } catch (err: any) {
-      console.log('[HistoryScreen] Local history fallback:', err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [orders]);
-
-  useEffect(() => {
-    loadHistory(searchQuery);
-  }, [searchQuery, loadHistory]);
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadHistory(searchQuery);
-    setRefreshing(false);
   };
 
   const completedCount = orders.filter((o) => o.status === 'COMPLETED').length;
@@ -328,7 +284,6 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onBack, onEditOrde
         className="flex-1"
         contentContainerStyle={{ padding: 16, paddingBottom: contentPaddingBottom, gap: 12 }}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0D9488']} />}
       >
         {filteredOrders.map((order) => {
           const isVoided = order.status === 'VOIDED';

@@ -24,9 +24,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiveOrder, LiveOrderStatus } from '../../types';
 import { useMenuStore } from '../../data/menuStore';
-import { api } from '../../services/api';
-import { useSocketEvent } from '../../hooks/useSocket';
-import { soundService } from '../../services/sound';
 
 export interface OrdersScreenProps {
   orders?: LiveOrder[];
@@ -300,41 +297,6 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
     return matchStatus && matchSearch;
   });
 
-  // Tải danh sách đơn active từ API khi mount (Task B-006)
-  useEffect(() => {
-    api.getActiveOrders()
-      .then((data) => {
-        if (data && data.length > 0) {
-          setOrders(data);
-        }
-      })
-      .catch((err) => {
-        console.log('[OrdersScreen] Active orders API fallback:', err.message);
-      });
-  }, []);
-
-  // Lắng nghe Socket.IO sự kiện đơn hàng live (Task B-006 & Task B-003)
-  useSocketEvent('order:new', (newOrder: LiveOrder) => {
-    console.log('⚡ [OrdersScreen] New order received via Socket:', newOrder.code);
-    soundService.playNewOrderAlert();
-    setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
-  });
-
-  useSocketEvent('order:updated', (payload: { orderId: string; status: LiveOrderStatus }) => {
-    console.log('⚡ [OrdersScreen] Order status updated via Socket:', payload);
-    setOrders((prev) =>
-      prev.map((o) => (o.id === payload.orderId ? { ...o, status: payload.status } : o))
-    );
-  });
-
-  useSocketEvent('order:voided', (payload: { orderId: string }) => {
-    console.log('⚡ [OrdersScreen] Order voided via Socket:', payload);
-    setOrders((prev) => prev.filter((o) => o.id !== payload.orderId));
-    if (selectedOrder?.id === payload.orderId) {
-      setSelectedOrder(null);
-    }
-  });
-
   const handleUpdateOrderStatus = (orderId: string, nextStatus: LiveOrderStatus) => {
     const menuItems = useMenuStore.getState().items;
     const getPrepSecondsForOrder = (order: LiveOrder) => {
@@ -347,8 +309,6 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
       );
       return maxMinutes * 60;
     };
-
-    // Cập nhật optimistic local state
     setOrders((prev) =>
       prev.map((o) => {
         if (o.id === orderId) {
@@ -361,7 +321,6 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
         return o;
       })
     );
-
     if (selectedOrder && selectedOrder.id === orderId) {
       setSelectedOrder((prev) =>
         prev
@@ -373,11 +332,6 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
           : null
       );
     }
-
-    // Gọi API cập nhật trạng thái đơn (Task B-007)
-    api.updateOrderStatus(orderId, nextStatus).catch((err) => {
-      console.warn('[OrdersScreen] Failed to update order status via API:', err.message);
-    });
   };
 
   const handleCancelOrder = (orderId: string) => {
@@ -389,10 +343,6 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
         onPress: () => {
           setOrders((prev) => prev.filter((o) => o.id !== orderId));
           setSelectedOrder(null);
-          // Gọi API hủy đơn và hoàn kho (Task B-007)
-          api.voidOrder(orderId, 'Hủy bởi thu ngân trên Mobile').catch((err) => {
-            console.warn('[OrdersScreen] Failed to void order via API:', err.message);
-          });
         },
       },
     ]);

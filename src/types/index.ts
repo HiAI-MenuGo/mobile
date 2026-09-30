@@ -107,31 +107,3 @@ export interface UserProfile {
   shift: string;
   dob: string;
 }
-
-// ── Auth (Thành viên A quản lý, Task A-002) ──
-export type UserRole = 'PLATFORM_ADMIN' | 'ADMIN' | 'MANAGER' | 'KITCHEN' | 'CASHIER';
-
-export interface AuthUser {
-  id: string;
-  email?: string;
-  name: string;
-  role: UserRole;
-  tenantId: string;
-  branchId: string;
-  avatarUrl?: string;
-}
-
-export interface LoginResponse {
-  user: AuthUser;
-  accessToken: string;
-  refreshToken: string;
-}
-
-export interface TodayOverview {
-  revenue: number;
-  orderCount: number;
-  pendingOrders: number;
-  pendingPayment: number;
-  growth: number;
-  topItems: MenuItem[];
-}

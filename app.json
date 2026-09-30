@@ -10,20 +10,13 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.hiaimenugo.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": [
-        "android.permission.INTERNET",
-        "android.permission.VIBRATE",
-        "android.permission.ACCESS_NETWORK_STATE"
-      ],
-      "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "resize"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
