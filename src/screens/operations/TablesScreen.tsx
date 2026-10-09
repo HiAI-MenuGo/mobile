@@ -131,14 +131,6 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
               <Text className="text-[20px] font-extrabold text-textMain">Sơ Đồ Bàn Ăn</Text>
             </View>
           </View>
-
-          <TouchableOpacity
-            className="w-9 h-9 rounded-xl bg-slate-100 items-center justify-center border border-border"
-            onPress={loadTables}
-            activeOpacity={0.7}
-          >
-            {loading ? <ActivityIndicator size="small" color="#0F172A" /> : <RefreshCw size={16} color="#0F172A" />}
-          </TouchableOpacity>
         </View>
 
         {/* Thanh đếm trạng thái bàn */}
