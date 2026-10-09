@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
 import { theme } from '../theme';
 import { useAuthStore } from '../data/authStore';
 
@@ -62,30 +61,8 @@ export const LoginScreen: React.FC = () => {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.card}>
-          {/* Logo & Brand Header */}
-          <View style={styles.brandContainer}>
-            <View style={styles.logoBadge}>
-              <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 12L7.05 7.05C8.42 5.68 10.16 4.8 12 4.8V12ZM12 12L16.95 7.05C18.32 8.42 19.2 10.16 19.2 12H12ZM12 12L16.95 16.95C15.58 18.32 13.84 19.2 12 19.2V12ZM12 12L7.05 16.95C5.68 15.58 4.8 13.84 4.8 12H12Z"
-                  fill="#00A389"
-                />
-              </Svg>
-            </View>
-            <View style={styles.brandTextCol}>
-              <View style={styles.brandTitleRow}>
-                <Text style={styles.brandTitle}>MenuGO</Text>
-                <View style={styles.hiaiTag}>
-                  <Text style={styles.hiaiTagText}>HiAI</Text>
-                </View>
-              </View>
-              <Text style={styles.brandSubtitle}>Tasty Station • POS & KDS</Text>
-            </View>
-          </View>
-
-          {/* Title */}
+          {/* Title centered */}
           <Text style={styles.title}>Đăng nhập</Text>
-          <Text style={styles.subtitle}>Hệ thống vận hành nhân viên & thu ngân</Text>
 
           {/* Form */}
           <View style={styles.form}>
@@ -203,64 +180,13 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-  brandContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
-  },
-  logoBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: '#E6F7F4',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandTextCol: {
-    flex: 1,
-  },
-  brandTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  brandTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.3,
-  },
-  hiaiTag: {
-    backgroundColor: '#E6F7F4',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  hiaiTagText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#00A389',
-    letterSpacing: 0.5,
-  },
-  brandSubtitle: {
-    fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
-    marginTop: 2,
-  },
   title: {
     fontSize: 22,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    fontWeight: '500',
-    marginTop: 4,
-    marginBottom: 20,
+    textAlign: 'center',
+    marginBottom: 24,
   },
   form: {
     gap: 14,
