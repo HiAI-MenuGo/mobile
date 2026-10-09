@@ -202,7 +202,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
             activeOpacity={0.85}
           >
             <TrendingUp size={22} color="#00A389" />
-            <Text className="text-textMain text-[15px] font-extrabold mt-2.5">Báo Cáo Doanh Thu</Text>
+            <Text className="text-textMain text-[15px] font-extrabold mt-2.5">Doanh Thu</Text>
             <Text className="text-textSecondary text-[11px] mt-0.5">Thống kê ca & ngày</Text>
           </TouchableOpacity>
         </View>
