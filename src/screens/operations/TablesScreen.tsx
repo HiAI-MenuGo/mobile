@@ -49,16 +49,7 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
   const insets = useSafeAreaInsets();
   const dynamicPaddingBottom = insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6;
 
-  const [tables, setTables] = useState<TableItem[]>([
-    { id: 'tbl-01', name: 'Bàn 01', status: 'EMPTY' },
-    { id: 'tbl-02', name: 'Bàn 02', status: 'OCCUPIED', customerCount: 3, totalAmount: 125000, currentSessionId: 'sess-02' },
-    { id: 'tbl-03', name: 'Bàn 03', status: 'EMPTY' },
-    { id: 'tbl-04', name: 'Bàn 04', status: 'RESERVED', customerCount: 4 },
-    { id: 'tbl-05', name: 'Bàn 05', status: 'OCCUPIED', customerCount: 2, totalAmount: 90000, currentSessionId: 'sess-05' },
-    { id: 'tbl-06', name: 'Bàn 06', status: 'EMPTY' },
-    { id: 'tbl-07', name: 'Bàn 07', status: 'EMPTY' },
-    { id: 'tbl-08', name: 'Bàn 08', status: 'EMPTY' },
-  ]);
+  const [tables, setTables] = useState<TableItem[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -140,14 +131,6 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
               <Text className="text-[20px] font-extrabold text-textMain">Sơ Đồ Bàn Ăn</Text>
             </View>
           </View>
-
-          <TouchableOpacity
-            className="w-9 h-9 rounded-xl bg-slate-100 items-center justify-center border border-border"
-            onPress={loadTables}
-            activeOpacity={0.7}
-          >
-            {loading ? <ActivityIndicator size="small" color="#0F172A" /> : <RefreshCw size={16} color="#0F172A" />}
-          </TouchableOpacity>
         </View>
 
         {/* Thanh đếm trạng thái bàn */}

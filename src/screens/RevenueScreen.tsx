@@ -214,7 +214,7 @@ export const RevenueScreen: React.FC = () => {
       {/* Header Bar */}
       <View className="bg-white px-4 pt-2.5 pb-3 border-b border-[#F1F5F9]">
         <View className="flex-row justify-between items-center">
-          <Text className="text-[20px] font-extrabold text-textMain">Báo Cáo Doanh Thu</Text>
+          <Text className="text-[20px] font-extrabold text-textMain">Doanh Thu</Text>
           <TouchableOpacity
             className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F1F5F9] border border-border"
             onPress={openPicker}

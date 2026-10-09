@@ -8,14 +8,28 @@ import {
   CheckCheck,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { mockNotifications } from '../data/mockData';
 import { NotificationItem } from '../types';
+import { useSocketEvent } from '../hooks/useSocket';
 
 export const NotificationScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const dynamicContentPaddingBottom = (insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6) + 76;
-  const [notifications, setNotifications] = useState<NotificationItem[]>(mockNotifications);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [filterType, setFilterType] = useState<'ALL' | 'ORDER' | 'PAYMENT' | 'SYSTEM'>('ALL');
+
+  useSocketEvent('order:new', (newOrder: any) => {
+    setNotifications((prev) => [
+      {
+        id: `noti-${Date.now()}`,
+        type: 'ORDER',
+        title: `Đơn hàng mới: ${newOrder?.code || '#ĐH'}`,
+        message: `Bàn ${newOrder?.tableName || 'Mang về'} • ${newOrder?.items?.length || 1} món`,
+        time: 'Vừa xong',
+        isRead: false,
+      },
+      ...prev,
+    ]);
+  });
 
   const filteredList = notifications.filter((item) => {
     if (filterType === 'ALL') return true;

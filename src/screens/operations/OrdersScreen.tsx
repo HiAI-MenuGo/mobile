@@ -252,7 +252,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
   const dynamicPaddingBottom = insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6;
   const contentPaddingBottom = dynamicPaddingBottom + 16;
 
-  const [orders, setOrders] = useState<LiveOrder[]>(externalOrders || initialMockOrders);
+  const [orders, setOrders] = useState<LiveOrder[]>(externalOrders || []);
   const [activeTab, setActiveTab] = useState<LiveOrderStatus>('PENDING');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<LiveOrder | null>(null);
@@ -304,7 +304,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
   useEffect(() => {
     api.getActiveOrders()
       .then((data) => {
-        if (data && data.length > 0) {
+        if (data) {
           setOrders(data);
         }
       })

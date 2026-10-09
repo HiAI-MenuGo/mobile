@@ -1,4 +1,3 @@
-import { Audio } from 'expo-av';
 import { Vibration } from 'react-native';
 import { create } from 'zustand';
 
@@ -16,23 +15,31 @@ export const useSoundStore = create<SoundState>((set) => ({
   setVibrationEnabled: (enabled) => set({ vibrationEnabled: enabled }),
 }));
 
+// Safely resolve createAudioPlayer from expo-audio if available in current native environment
+let createAudioPlayerFn: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const expoAudio = require('expo-audio');
+  createAudioPlayerFn = expoAudio?.createAudioPlayer;
+} catch (err) {
+  // Native module not linked in current Expo Go environment; will safely fallback to vibration
+}
+
 class SoundService {
-  private newOrderSound: Audio.Sound | null = null;
-  private paymentSound: Audio.Sound | null = null;
+  private newOrderPlayer: any = null;
+  private paymentPlayer: any = null;
 
   constructor() {
-    this.initAudioMode();
+    this.initPlayers();
   }
 
-  private async initAudioMode() {
+  private initPlayers() {
+    if (!createAudioPlayerFn) return;
     try {
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-      });
-    } catch {
-      // Ignore audio mode configuration failure on unsupported environments
+      this.newOrderPlayer = createAudioPlayerFn(require('../../assets/sounds/new_order.mp3'));
+      this.paymentPlayer = createAudioPlayerFn(require('../../assets/sounds/payment_complete.mp3'));
+    } catch (e) {
+      // Ignore initial sound loading error
     }
   }
 
@@ -54,14 +61,14 @@ class SoundService {
     if (!soundEnabled) return;
 
     try {
-      if (this.newOrderSound) {
-        await this.newOrderSound.replayAsync();
-      } else {
-        const { sound } = await Audio.Sound.createAsync(
-          require('../../assets/sounds/new_order.mp3'),
-          { shouldPlay: true, volume: 1.0 }
-        );
-        this.newOrderSound = sound;
+      if (this.newOrderPlayer) {
+        if (typeof this.newOrderPlayer.seekTo === 'function') {
+          await this.newOrderPlayer.seekTo(0);
+        }
+        this.newOrderPlayer.play();
+      } else if (createAudioPlayerFn) {
+        this.newOrderPlayer = createAudioPlayerFn(require('../../assets/sounds/new_order.mp3'));
+        this.newOrderPlayer?.play();
       }
     } catch (e) {
       console.warn('⚠️ [SoundService] Could not play new order sound:', e);
@@ -85,14 +92,14 @@ class SoundService {
     if (!soundEnabled) return;
 
     try {
-      if (this.paymentSound) {
-        await this.paymentSound.replayAsync();
-      } else {
-        const { sound } = await Audio.Sound.createAsync(
-          require('../../assets/sounds/payment_complete.mp3'),
-          { shouldPlay: true, volume: 1.0 }
-        );
-        this.paymentSound = sound;
+      if (this.paymentPlayer) {
+        if (typeof this.paymentPlayer.seekTo === 'function') {
+          await this.paymentPlayer.seekTo(0);
+        }
+        this.paymentPlayer.play();
+      } else if (createAudioPlayerFn) {
+        this.paymentPlayer = createAudioPlayerFn(require('../../assets/sounds/payment_complete.mp3'));
+        this.paymentPlayer?.play();
       }
     } catch (e) {
       console.warn('⚠️ [SoundService] Could not play payment sound:', e);
@@ -104,13 +111,13 @@ class SoundService {
    */
   async unloadAll() {
     try {
-      if (this.newOrderSound) {
-        await this.newOrderSound.unloadAsync();
-        this.newOrderSound = null;
+      if (this.newOrderPlayer?.remove) {
+        this.newOrderPlayer.remove();
+        this.newOrderPlayer = null;
       }
-      if (this.paymentSound) {
-        await this.paymentSound.unloadAsync();
-        this.paymentSound = null;
+      if (this.paymentPlayer?.remove) {
+        this.paymentPlayer.remove();
+        this.paymentPlayer = null;
       }
     } catch {
       // Ignore unload error

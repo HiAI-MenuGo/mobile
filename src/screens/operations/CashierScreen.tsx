@@ -201,13 +201,6 @@ export const CashierScreen: React.FC<CashierScreenProps> = ({ onBack }) => {
               <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Thanh Toán</Text>
             </View>
           </View>
-          <TouchableOpacity
-            className="w-9 h-9 rounded-xl bg-slate-100 items-center justify-center border border-border"
-            onPress={loadPendingBills}
-            activeOpacity={0.7}
-          >
-            {loading ? <ActivityIndicator size="small" color="#0F172A" /> : <RefreshCw size={16} color="#0F172A" />}
-          </TouchableOpacity>
         </View>
 
         {/* Tổng tiền chờ thu */}

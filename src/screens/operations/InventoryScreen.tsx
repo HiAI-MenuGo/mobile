@@ -299,13 +299,6 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
           </View>
           <View className="flex-row items-center gap-2">
             <TouchableOpacity
-              className="w-9 h-9 rounded-xl bg-slate-100 items-center justify-center border border-border"
-              onPress={loadIngredients}
-              activeOpacity={0.7}
-            >
-              {loading ? <ActivityIndicator size="small" color="#0F172A" /> : <RefreshCw size={16} color="#0F172A" />}
-            </TouchableOpacity>
-            <TouchableOpacity
               className="w-9 h-9 items-center justify-center rounded-xl bg-emerald-50 border border-emerald-200"
               onPress={() => setIsAddFormVisible(true)}
               activeOpacity={0.7}

@@ -7,24 +7,24 @@
 
 export const theme = {
   colors: {
-    // Primary Brand (Emerald / Mint)
-    primary: '#10B981',
-    primaryDark: '#059669',
-    primaryLight: '#D1FAE5',
-    primaryTint: '#ECFDF5',
+    // Primary Brand (Tasty Station Teal / Mint - đồng bộ Web)
+    primary: '#00A389',
+    primaryDark: '#008770',
+    primaryLight: '#E6F7F4',
+    primaryTint: '#F0FDF9',
 
     // Accent & Status
-    accent: '#0284C7',
-    accentLight: '#E0F2FE',
-    success: '#10B981',
+    accent: '#FF7A59',
+    accentLight: '#FFF1EE',
+    success: '#00A389',
     warning: '#F59E0B',
     danger: '#EF4444',
     info: '#3B82F6',
 
     // Surfaces & Backgrounds
-    background: '#F8FAFC',
+    background: '#F4F6F8',
     surface: '#FFFFFF',
-    surfaceSubtle: '#F1F5F9',
+    surfaceSubtle: '#F8FAFC',
 
     // Borders & Dividers
     border: '#E2E8F0',

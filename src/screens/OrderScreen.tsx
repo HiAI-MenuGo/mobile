@@ -47,9 +47,15 @@ export const OrderScreen: React.FC<OrderScreenProps> = ({
   onBackToHistory,
 }) => {
   const insets = useSafeAreaInsets();
-  const { items: menuItems, categories } = useMenuStore();
+  const { items: menuItems, categories, fetchMenuItems } = useMenuStore();
   const { orders, editingOrderId, setEditingOrderId, updateOrder } = useHistoryStore();
   const editingOrder = orders.find((o) => o.id === editingOrderId) || null;
+
+  useEffect(() => {
+    if (menuItems.length === 0) {
+      fetchMenuItems();
+    }
+  }, [fetchMenuItems, menuItems.length]);
 
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
   const [searchQuery, setSearchQuery] = useState('');

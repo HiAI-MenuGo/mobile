@@ -45,12 +45,10 @@ import {
   CheckCircle2,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { mockUserProfile } from '../data/mockData';
+import { useAuthStore } from '../data/authStore';
 import { UserProfile } from '../types';
 
-// Danh sách tài khoản nhân viên chi nhánh để chuyển đổi ca nhanh
 const AVAILABLE_STAFF_PROFILES: UserProfile[] = [
-  mockUserProfile,
   {
     name: 'Nguyễn Vy',
     role: 'Thu Ngân & Phục Vụ',
@@ -166,7 +164,29 @@ const AnimatedBottomSheet: React.FC<{
 export const SettingsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const dynamicContentPaddingBottom = (insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6) + 76;
-  const [profile, setProfile] = useState<UserProfile>(mockUserProfile);
+  const currentUser = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+
+  const initialProfile: UserProfile = {
+    name: currentUser?.name || 'Nhân Viên Vận Hành',
+    role:
+      currentUser?.role === 'PLATFORM_ADMIN'
+        ? 'Quản Trị Nền Tảng'
+        : currentUser?.role === 'ADMIN'
+        ? 'Quản Trị Viên (Admin)'
+        : currentUser?.role === 'CASHIER'
+        ? 'Thu Ngân'
+        : 'Nhân Viên Vận Hành',
+    code: currentUser?.id ? `NV-${currentUser.id.substring(0, 4).toUpperCase()}` : 'NV-2026',
+    phone: '0901 234 567',
+    email: currentUser?.email || 'user@hiai.vn',
+    branch: 'Tasty Station - Chi Nhánh Thủ Đức',
+    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80',
+    shift: 'Ca Toàn Thời Gian',
+    dob: '15/02/1995',
+  };
+
+  const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [showDetail, setShowDetail] = useState(false);
 
   // Modal Controllers
@@ -272,9 +292,13 @@ export const SettingsScreen: React.FC = () => {
     Alert.alert('Cảm ơn bạn!', 'Ý kiến đóng góp của bạn đã được gửi thành công đến đội ngũ MenuGo.');
   };
 
-  const handleConfirmLogout = () => {
+  const handleConfirmLogout = async () => {
     setActiveModal(null);
-    Alert.alert('Đăng xuất', 'Bạn đã đăng xuất khỏi tài khoản thành công.');
+    try {
+      await logout();
+    } catch (err: unknown) {
+      console.warn('[SettingsScreen] Logout error:', (err as Error).message);
+    }
   };
 
   // MÀN HÌNH CHI TIẾT HỒ SƠ CÁ NHÂN (Khi bấm vào xem chi tiết)
