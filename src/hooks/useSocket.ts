@@ -4,8 +4,9 @@ import { io, Socket } from 'socket.io-client';
 import { soundService } from '../services/sound';
 
 // Địa chỉ backend mặc định: Android emulator dùng 10.0.2.2, iOS/Web dùng localhost
-const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
-export const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL;
+const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5001' : 'http://localhost:5001';
+const rawSocketUrl = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL).trim().replace(/\/+$/, '');
+export const SOCKET_URL = rawSocketUrl.replace(/\/api$/, '');
 
 let sharedSocket: Socket | null = null;
 

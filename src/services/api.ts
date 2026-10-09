@@ -2,14 +2,24 @@ import { Platform } from 'react-native';
 import axios from 'axios';
 import { AuthUser, LiveOrder, LiveOrderStatus, LoginResponse } from '../types';
 
-const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL;
+const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5001' : 'http://localhost:5001';
+const rawBase = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL).trim().replace(/\/+$/, '');
+export const API_HOST_URL = rawBase.replace(/\/api$/, '');
+export const API_BASE_URL = `${API_HOST_URL}/api`;
 
 // ── Axios instance (Task A-001) — dùng cho các module mới của A ──
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
+});
+
+// Interceptor chuẩn hóa đường dẫn để tránh lặp /api/api
+apiClient.interceptors.request.use((config) => {
+  if (config.url?.startsWith('/api/')) {
+    config.url = config.url.replace(/^\/api/, '');
+  }
+  return config;
 });
 
 // Token bộ nhớ (được authStore đồng bộ vào mỗi lần login/logout)
@@ -35,7 +45,10 @@ apiClient.interceptors.response.use(
 );
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = cleanEndpoint.startsWith('/api/') || cleanEndpoint === '/api'
+    ? `${API_HOST_URL}${cleanEndpoint}`
+    : `${API_BASE_URL}${cleanEndpoint}`;
   try {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
