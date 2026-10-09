@@ -10,72 +10,23 @@ import {
   ScrollView,
   StyleSheet,
 } from 'react-native';
-import {
-  LogIn,
-  Mail,
-  Lock,
-  Eye,
-  EyeOff,
-  AlertCircle,
-  ShieldCheck,
-  UserCheck,
-  CreditCard,
-  ChefHat,
-  Sparkles,
-} from 'lucide-react-native';
+import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { theme } from '../theme';
 import { useAuthStore } from '../data/authStore';
 
-const SEEDED_ACCOUNTS = [
-  {
-    role: 'ADMIN',
-    name: 'Ibrahim Kadri',
-    email: 'ibrahim.kadri@tastystation.com',
-    roleLabel: 'Admin / Chủ quán',
-    icon: ShieldCheck,
-  },
-  {
-    role: 'MANAGER',
-    name: 'Lê Thanh Hải',
-    email: 'manager@tastystation.com',
-    roleLabel: 'Quản lý trưởng',
-    icon: UserCheck,
-  },
-  {
-    role: 'CASHIER',
-    name: 'Nguyễn Thị Mai',
-    email: 'cashier@tastystation.com',
-    roleLabel: 'Thu ngân ca sáng',
-    icon: CreditCard,
-  },
-  {
-    role: 'KITCHEN',
-    name: 'Phạm Văn Bếp',
-    email: 'kitchen@tastystation.com',
-    roleLabel: 'Bếp trưởng KDS',
-    icon: ChefHat,
-  },
-];
-
 export const LoginScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const login = useAuthStore((s) => s.login);
 
-  const [email, setEmail] = useState('ibrahim.kadri@tastystation.com');
-  const [password, setPassword] = useState('123456');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const handleSelectAccount = (accountEmail: string) => {
-    setEmail(accountEmail);
-    setPassword('123456');
-    setError(null);
-  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -220,52 +171,6 @@ export const LoginScreen: React.FC = () => {
                 </>
               )}
             </TouchableOpacity>
-          </View>
-
-          {/* Seeded Accounts Quick Selection */}
-          <View style={styles.quickSection}>
-            <View style={styles.quickHeader}>
-              <Sparkles size={13} color={theme.colors.primary} />
-              <Text style={styles.quickTitle}>Tài khoản mẫu đã seed (MK: 123456)</Text>
-            </View>
-            <View style={styles.chipsGrid}>
-              {SEEDED_ACCOUNTS.map((acc) => {
-                const isSelected = email.toLowerCase() === acc.email.toLowerCase();
-                const IconComponent = acc.icon;
-                return (
-                  <TouchableOpacity
-                    key={acc.email}
-                    onPress={() => handleSelectAccount(acc.email)}
-                    style={[
-                      styles.chip,
-                      isSelected && styles.chipActive,
-                    ]}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.chipIconBox, isSelected && styles.chipIconBoxActive]}>
-                      <IconComponent
-                        size={13}
-                        color={isSelected ? theme.colors.primary : '#64748B'}
-                      />
-                    </View>
-                    <View style={styles.chipTextCol}>
-                      <Text
-                        style={[styles.chipName, isSelected && styles.chipNameActive]}
-                        numberOfLines={1}
-                      >
-                        {acc.name}
-                      </Text>
-                      <Text
-                        style={[styles.chipRole, isSelected && styles.chipRoleActive]}
-                        numberOfLines={1}
-                      >
-                        {acc.roleLabel}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
           </View>
 
           {/* Footer */}
@@ -434,74 +339,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  quickSection: {
-    marginTop: 22,
-    paddingTop: 18,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  quickHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
-  },
-  quickTitle: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  chipsGrid: {
-    gap: 8,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  chipActive: {
-    backgroundColor: '#E6F7F4',
-    borderColor: '#00A389',
-  },
-  chipIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    backgroundColor: '#EDF2F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chipIconBoxActive: {
-    backgroundColor: '#FFFFFF',
-  },
-  chipTextCol: {
-    flex: 1,
-  },
-  chipName: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  chipNameActive: {
-    color: '#007A66',
-  },
-  chipRole: {
-    fontSize: 10.5,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 1,
-  },
-  chipRoleActive: {
-    color: '#00A389',
-  },
   footerText: {
-    marginTop: 20,
+    marginTop: 24,
     textAlign: 'center',
     fontSize: 11,
     fontWeight: '600',
