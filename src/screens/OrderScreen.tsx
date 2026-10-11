@@ -492,14 +492,6 @@ export const OrderScreen: React.FC<OrderScreenProps> = ({
                   color: '#2563EB',
                   bgColor: '#EFF6FF',
                 },
-                {
-                  id: 'Thẻ POS',
-                  label: 'Thẻ POS (ATM / Visa)',
-                  desc: 'Quẹt thẻ thanh toán qua máy POS quầy',
-                  icon: CreditCard,
-                  color: '#7C3AED',
-                  bgColor: '#F5F3FF',
-                },
               ].map((method) => {
                 const isSelected = selectedPaymentMethod === method.id;
                 const IconComp = method.icon;

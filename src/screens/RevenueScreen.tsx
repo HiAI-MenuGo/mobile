@@ -1,87 +1,90 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import {
-  CreditCard,
   Coins,
   Calendar as CalendarIcon,
   ArrowUpRight,
   ReceiptText,
-  ChevronLeft,
-  ChevronRight,
   X,
   Check,
   RotateCcw,
+  QrCode,
+  RefreshCw,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { api } from '../services/api';
 
 export const RevenueScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const dynamicContentPaddingBottom = (insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6) + 76;
   const [timeframe, setTimeframe] = useState<'day' | 'month' | 'year'>('day');
 
-  // State quản lý ngày, tháng, năm được chọn
-  const [selectedDay, setSelectedDay] = useState<number>(18);
-  const [selectedMonth, setSelectedMonth] = useState<number>(9);
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  // Quản lý ngày được chọn (mặc định hôm nay)
+  const today = new Date();
+  const [selectedDay, setSelectedDay] = useState<number>(today.getDate());
+  const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(today.getFullYear());
 
-  // State mở modal chọn chi tiết
+  // Modal bộ lọc
   const [isPickerModalOpen, setIsPickerModalOpen] = useState(false);
-
-  // Temporary state trong modal trước khi nhấn Áp dụng
   const [tempDay, setTempDay] = useState<number>(selectedDay);
   const [tempMonth, setTempMonth] = useState<number>(selectedMonth);
   const [tempYear, setTempYear] = useState<number>(selectedYear);
+
+  // Dữ liệu API thật
+  const [loading, setLoading] = useState<boolean>(true);
+  const [report, setReport] = useState<any | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
   };
 
-  // Hàm chuyển nhanh ngày/tháng/năm bằng nút mũi tên < >
-  const handlePrevious = () => {
-    if (timeframe === 'day') {
-      if (selectedDay > 1) {
-        setSelectedDay((prev) => prev - 1);
-      } else if (selectedMonth > 1) {
-        setSelectedMonth((prev) => prev - 1);
-        setSelectedDay(30);
-      }
-    } else if (timeframe === 'month') {
-      if (selectedMonth > 1) {
-        setSelectedMonth((prev) => prev - 1);
-      } else {
-        setSelectedYear((prev) => prev - 1);
-        setSelectedMonth(12);
-      }
-    } else {
-      setSelectedYear((prev) => prev - 1);
-    }
-  };
+  const pad = (n: number) => n.toString().padStart(2, '0');
 
-  const handleNext = () => {
+  // Tính khoảng ngày theo timeframe
+  const getDateRange = useCallback(() => {
     if (timeframe === 'day') {
-      if (selectedDay < 31) {
-        setSelectedDay((prev) => prev + 1);
-      } else if (selectedMonth < 12) {
-        setSelectedMonth((prev) => prev + 1);
-        setSelectedDay(1);
-      }
-    } else if (timeframe === 'month') {
-      if (selectedMonth < 12) {
-        setSelectedMonth((prev) => prev + 1);
-      } else {
-        setSelectedYear((prev) => prev + 1);
-        setSelectedMonth(1);
-      }
-    } else {
-      setSelectedYear((prev) => prev + 1);
+      const dStr = `${selectedYear}-${pad(selectedMonth)}-${pad(selectedDay)}`;
+      return { startDate: dStr, endDate: dStr };
     }
-  };
+    if (timeframe === 'month') {
+      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+      return {
+        startDate: `${selectedYear}-${pad(selectedMonth)}-01`,
+        endDate: `${selectedYear}-${pad(selectedMonth)}-${pad(lastDay)}`,
+      };
+    }
+    return {
+      startDate: `${selectedYear}-01-01`,
+      endDate: `${selectedYear}-12-31`,
+    };
+  }, [timeframe, selectedDay, selectedMonth, selectedYear]);
+
+  const loadRevenueData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { startDate, endDate } = getDateRange();
+      const res = await api.getRevenueReport({ startDate, endDate });
+      setReport(res);
+    } catch (err: any) {
+      setError(err?.message || 'Không tải được báo cáo doanh thu');
+    } finally {
+      setLoading(false);
+    }
+  }, [getDateRange]);
+
+  useEffect(() => {
+    loadRevenueData();
+  }, [loadRevenueData]);
 
   // Mở modal picker
   const openPicker = () => {
@@ -91,7 +94,6 @@ export const RevenueScreen: React.FC = () => {
     setIsPickerModalOpen(true);
   };
 
-  // Áp dụng lựa chọn từ modal
   const applyPicker = () => {
     setSelectedDay(tempDay);
     setSelectedMonth(tempMonth);
@@ -99,17 +101,15 @@ export const RevenueScreen: React.FC = () => {
     setIsPickerModalOpen(false);
   };
 
-  // Đặt về ngày hiện tại
   const resetToToday = () => {
-    setSelectedDay(18);
-    setSelectedMonth(9);
-    setSelectedYear(2026);
+    const now = new Date();
+    setSelectedDay(now.getDate());
+    setSelectedMonth(now.getMonth() + 1);
+    setSelectedYear(now.getFullYear());
     setIsPickerModalOpen(false);
   };
 
-  // Nhãn hiển thị ngày/tháng/năm đã chọn
   const getFilterLabel = () => {
-    const pad = (n: number) => n.toString().padStart(2, '0');
     if (timeframe === 'day') {
       return `${pad(selectedDay)}/${pad(selectedMonth)}/${selectedYear}`;
     }
@@ -119,95 +119,22 @@ export const RevenueScreen: React.FC = () => {
     return `Năm ${selectedYear}`;
   };
 
-  // Tính toán dữ liệu doanh thu tương ứng theo ngày/tháng/năm
-  const getComputedRevenue = () => {
-    if (timeframe === 'day') {
-      const base = 7500000 + ((selectedDay * 170000) % 2200000);
-      const transfer = Math.round(base * 0.65);
-      const cash = base - transfer;
-      return {
-        total: base,
-        growthPercent: selectedDay % 2 === 0 ? 12.8 : 8.5,
-        orderCount: 110 + (selectedDay % 35),
-        cashTotal: cash,
-        transferTotal: transfer,
-        breakdown: [
-          { label: '07h', value: Math.round(base * 0.08) },
-          { label: '09h', value: Math.round(base * 0.16) },
-          { label: '11h', value: Math.round(base * 0.22) },
-          { label: '13h', value: Math.round(base * 0.12) },
-          { label: '15h', value: Math.round(base * 0.18) },
-          { label: '17h', value: Math.round(base * 0.14) },
-          { label: '19h', value: Math.round(base * 0.10) },
-        ],
-        transactions: [
-          { id: `HD-${selectedDay}842`, time: '14:32', amount: 145000, method: 'VIETQR', table: 'Bàn 03' },
-          { id: `HD-${selectedDay}841`, time: '14:15', amount: 84000, method: 'CASH', table: 'Đơn #8841' },
-          { id: `HD-${selectedDay}840`, time: '13:50', amount: 220000, method: 'VIETQR', table: 'Bàn VIP 1' },
-          { id: `HD-${selectedDay}839`, time: '13:12', amount: 98000, method: 'CARD', table: 'Bàn 02' },
-          { id: `HD-${selectedDay}838`, time: '12:45', amount: 310000, method: 'VIETQR', table: 'Bàn 01' },
-        ],
-      };
-    }
-
-    if (timeframe === 'month') {
-      const base = 220000000 + ((selectedMonth * 6500000) % 45000000);
-      const transfer = Math.round(base * 0.7);
-      const cash = base - transfer;
-      return {
-        total: base,
-        growthPercent: 18.5,
-        orderCount: 3400 + selectedMonth * 80,
-        cashTotal: cash,
-        transferTotal: transfer,
-        breakdown: [
-          { label: 'Tuần 1', value: Math.round(base * 0.24) },
-          { label: 'Tuần 2', value: Math.round(base * 0.27) },
-          { label: 'Tuần 3', value: Math.round(base * 0.23) },
-          { label: 'Tuần 4', value: Math.round(base * 0.26) },
-        ],
-        transactions: [
-          { id: `HD-T${selectedMonth}-01`, time: `Tuần 4`, amount: 64900000, method: 'VIETQR', table: 'Tổng hợp' },
-          { id: `HD-T${selectedMonth}-02`, time: `Tuần 3`, amount: 61200000, method: 'VIETQR', table: 'Tổng hợp' },
-          { id: `HD-T${selectedMonth}-03`, time: `Tuần 2`, amount: 64500000, method: 'CARD', table: 'Tổng hợp' },
-          { id: `HD-T${selectedMonth}-04`, time: `Tuần 1`, amount: 58000000, method: 'CASH', table: 'Tổng hợp' },
-        ],
-      };
-    }
-
-    // Theo Năm
-    const base = 2600000000 + ((selectedYear - 2023) * 250000000);
-    const transfer = Math.round(base * 0.72);
-    const cash = base - transfer;
-    return {
-      total: base,
-      growthPercent: 24.2,
-      orderCount: 42000 + (selectedYear - 2023) * 3200,
-      cashTotal: cash,
-      transferTotal: transfer,
-      breakdown: [
-        { label: 'Quý 1', value: Math.round(base * 0.23) },
-        { label: 'Quý 2', value: Math.round(base * 0.26) },
-        { label: 'Quý 3', value: Math.round(base * 0.28) },
-        { label: 'Quý 4', value: Math.round(base * 0.23) },
-      ],
-      transactions: [
-        { id: `NĂM-${selectedYear}-Q4`, time: 'Quý 4', amount: Math.round(base * 0.23), method: 'VIETQR', table: 'Toàn chi nhánh' },
-        { id: `NĂM-${selectedYear}-Q3`, time: 'Quý 3', amount: Math.round(base * 0.28), method: 'VIETQR', table: 'Toàn chi nhánh' },
-        { id: `NĂM-${selectedYear}-Q2`, time: 'Quý 2', amount: Math.round(base * 0.26), method: 'CARD', table: 'Toàn chi nhánh' },
-        { id: `NĂM-${selectedYear}-Q1`, time: 'Quý 1', amount: Math.round(base * 0.23), method: 'CASH', table: 'Toàn chi nhánh' },
-      ],
-    };
+  const summary = report?.summary || {
+    totalRevenue: 0,
+    orderCount: 0,
+    qrRevenue: 0,
+    cashRevenue: 0,
+    growthPercent: 0,
   };
 
-  const data = getComputedRevenue();
-  const maxValue = Math.max(...data.breakdown.map((item) => item.value));
+  const dailyTrend = report?.dailyTrend || [];
+  const recentOrders = report?.recentOrders || [];
+  const maxTrendRevenue = Math.max(...dailyTrend.map((d: any) => d.revenue), 1);
 
-  // Số ngày tối đa trong tháng đang chọn
   const daysInCurrentMonth = new Date(tempYear, tempMonth, 0).getDate();
   const daysArray = Array.from({ length: daysInCurrentMonth }, (_, i) => i + 1);
   const monthsArray = Array.from({ length: 12 }, (_, i) => i + 1);
-  const yearsArray = [2023, 2024, 2025, 2026, 2027];
+  const yearsArray = [2024, 2025, 2026, 2027];
 
   return (
     <View className="flex-1 bg-background">
@@ -215,14 +142,23 @@ export const RevenueScreen: React.FC = () => {
       <View className="bg-white px-4 pt-2.5 pb-3 border-b border-[#F1F5F9]">
         <View className="flex-row justify-between items-center">
           <Text className="text-[20px] font-extrabold text-textMain">Doanh Thu</Text>
-          <TouchableOpacity
-            className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F1F5F9] border border-border"
-            onPress={openPicker}
-            activeOpacity={0.75}
-          >
-            <CalendarIcon size={14} color="#059669" />
-            <Text className="text-[12px] font-bold text-textMain">{getFilterLabel()}</Text>
-          </TouchableOpacity>
+          <View className="flex-row items-center gap-2">
+            <TouchableOpacity
+              className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F1F5F9] border border-border"
+              onPress={openPicker}
+              activeOpacity={0.75}
+            >
+              <CalendarIcon size={14} color="#059669" />
+              <Text className="text-[12px] font-bold text-textMain">{getFilterLabel()}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="w-8 h-8 rounded-full bg-[#F1F5F9] items-center justify-center border border-border"
+              onPress={loadRevenueData}
+              activeOpacity={0.75}
+            >
+              <RefreshCw size={13} color="#64748B" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -232,152 +168,218 @@ export const RevenueScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         {/* Segmented Control: NGÀY / THÁNG / NĂM */}
-      <View className="flex-row bg-[#E2E8F0] rounded-full p-1 mb-3">
-        <TouchableOpacity
-          className={`flex-1 py-[9px] items-center rounded-full ${timeframe === 'day' ? 'bg-white' : ''}`}
-          onPress={() => setTimeframe('day')}
-          activeOpacity={0.8}
-        >
-          <Text className={`text-[13px] ${timeframe === 'day' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
-            Theo Ngày
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className={`flex-1 py-[9px] items-center rounded-full ${timeframe === 'month' ? 'bg-white' : ''}`}
-          onPress={() => setTimeframe('month')}
-          activeOpacity={0.8}
-        >
-          <Text className={`text-[13px] ${timeframe === 'month' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
-            Theo Tháng
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className={`flex-1 py-[9px] items-center rounded-full ${timeframe === 'year' ? 'bg-white' : ''}`}
-          onPress={() => setTimeframe('year')}
-          activeOpacity={0.8}
-        >
-          <Text className={`text-[13px] ${timeframe === 'year' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
-            Theo Năm
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Main Revenue Card */}
-      <View
-        className="bg-white rounded-[20px] p-[18px] border border-border mb-4"
-        style={{
-          shadowColor: '#0F172A',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.05,
-          shadowRadius: 10,
-          elevation: 2,
-        }}
-      >
-        <View className="flex-row justify-between items-center">
-          <Text className="text-[11px] font-extrabold text-textMuted tracking-[0.8px]">TỔNG TIỀN THU VÀO</Text>
-          <View className="flex-row items-center bg-[#ECFDF5] px-2 py-[3px] rounded-full">
-            <ArrowUpRight size={14} color="#047857" />
-            <Text className="text-[#047857] text-[12px] font-bold ml-0.5">+{data.growthPercent}%</Text>
-          </View>
-        </View>
-
-        <Text className="text-[30px] font-black text-textMain my-1.5 tracking-[-0.5px]">{formatCurrency(data.total)}</Text>
-        <Text className="text-[13px] text-textSecondary mb-4">{data.orderCount} lượt giao dịch trong kỳ</Text>
-
-        {/* Method Breakdown */}
-        <View className="flex-row gap-2.5 pt-3.5 border-t border-[#F1F5F9]">
-          <View className="flex-1 bg-[#F8FAFC] rounded-[14px] p-3 border border-border">
-            <View className="flex-row items-center gap-1.5 mb-1.5">
-              <View className="w-5 h-5 rounded-full items-center justify-center bg-[#2563EB]">
-                <CreditCard size={12} color="#FFFFFF" strokeWidth={2.5} />
-              </View>
-              <Text className="text-[11px] font-semibold text-textSecondary">VietQR / Thẻ</Text>
-            </View>
-            <Text className="text-[15px] font-extrabold text-textMain my-0.5">{formatCurrency(data.transferTotal)}</Text>
-            <Text className="text-[10.5px] text-textMuted">
-              {Math.round((data.transferTotal / data.total) * 100)}% tổng thu
+        <View className="flex-row bg-[#E2E8F0] rounded-full p-1 mb-3">
+          <TouchableOpacity
+            className={`flex-1 py-[9px] items-center rounded-full ${timeframe === 'day' ? 'bg-white' : ''}`}
+            onPress={() => setTimeframe('day')}
+            activeOpacity={0.8}
+          >
+            <Text className={`text-[13px] ${timeframe === 'day' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
+              Theo Ngày
             </Text>
-          </View>
+          </TouchableOpacity>
 
-          <View className="flex-1 bg-[#F8FAFC] rounded-[14px] p-3 border border-border">
-            <View className="flex-row items-center gap-1.5 mb-1.5">
-              <View className="w-5 h-5 rounded-full items-center justify-center bg-primaryDark">
-                <Coins size={12} color="#FFFFFF" strokeWidth={2.5} />
-              </View>
-              <Text className="text-[11px] font-semibold text-textSecondary">Tiền mặt (Cash)</Text>
-            </View>
-            <Text className="text-[15px] font-extrabold text-textMain my-0.5">{formatCurrency(data.cashTotal)}</Text>
-            <Text className="text-[10.5px] text-textMuted">
-              {Math.round((data.cashTotal / data.total) * 100)}% tổng thu
+          <TouchableOpacity
+            className={`flex-1 py-[9px] items-center rounded-full ${timeframe === 'month' ? 'bg-white' : ''}`}
+            onPress={() => setTimeframe('month')}
+            activeOpacity={0.8}
+          >
+            <Text className={`text-[13px] ${timeframe === 'month' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
+              Theo Tháng
             </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className={`flex-1 py-[9px] items-center rounded-full ${timeframe === 'year' ? 'bg-white' : ''}`}
+            onPress={() => setTimeframe('year')}
+            activeOpacity={0.8}
+          >
+            <Text className={`text-[13px] ${timeframe === 'year' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
+              Theo Năm
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {loading ? (
+          <View className="py-16 items-center justify-center">
+            <ActivityIndicator size="large" color="#00A389" />
+            <Text className="text-xs text-textSecondary font-semibold mt-3">Đang đồng bộ dữ liệu doanh thu...</Text>
           </View>
-        </View>
-      </View>
-
-      {/* Visual Chart / Breakdown */}
-      <View
-        className="bg-white rounded-[20px] p-[18px] border border-border mb-4"
-        style={{
-          shadowColor: '#0F172A',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.05,
-          shadowRadius: 10,
-          elevation: 2,
-        }}
-      >
-        <View className="flex-row justify-between items-center mb-3.5">
-          <Text className="text-[14px] font-extrabold text-textMain">Biểu Đồ Theo Mốc {timeframe === 'day' ? 'Giờ' : timeframe === 'month' ? 'Tuần' : 'Quý'}</Text>
-          <Text className="text-[11px] font-bold text-primaryDark bg-[#ECFDF5] px-2 py-0.5 rounded-full">{getFilterLabel()}</Text>
-        </View>
-
-        <View className="flex-row items-end justify-between h-[120px] pt-3 px-1">
-          {data.breakdown.map((bar, idx) => {
-            const heightPercent = maxValue > 0 ? (bar.value / maxValue) * 100 : 10;
-            return (
-              <View key={idx} className="items-center flex-1">
-                <View className="w-4 h-[90px] bg-[#F1F5F9] rounded-full justify-end overflow-hidden">
-                  <View
-                    className="w-full bg-primary rounded-full"
-                    style={{ height: `${Math.max(heightPercent, 12)}%` }}
-                  />
-                </View>
-                <Text className="text-[10px] font-bold text-textMuted mt-1.5">{bar.label}</Text>
+        ) : error ? (
+          <View className="bg-rose-50 border border-rose-200 p-4 rounded-2xl mb-4 items-center">
+            <Text className="text-rose-700 text-xs font-bold mb-2">{error}</Text>
+            <TouchableOpacity onPress={loadRevenueData} className="bg-rose-600 px-4 py-1.5 rounded-xl">
+              <Text className="text-white text-xs font-bold">Thử lại</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            {/* Main Revenue Card */}
+            <View
+              className="bg-white rounded-[20px] p-[18px] border border-border mb-4"
+              style={{
+                shadowColor: '#0F172A',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.05,
+                shadowRadius: 10,
+                elevation: 2,
+              }}
+            >
+              <View className="flex-row justify-between items-center">
+                <Text className="text-[11px] font-extrabold text-textMuted tracking-[0.8px]">TỔNG THỰC THU</Text>
+                {summary.growthPercent !== 0 && (
+                  <View className="flex-row items-center bg-[#ECFDF5] px-2 py-[3px] rounded-full">
+                    <ArrowUpRight size={14} color="#047857" />
+                    <Text className="text-[#047857] text-[12px] font-bold ml-0.5">
+                      {summary.growthPercent > 0 ? `+${summary.growthPercent}%` : `${summary.growthPercent}%`}
+                    </Text>
+                  </View>
+                )}
               </View>
-            );
-          })}
-        </View>
-      </View>
 
-      {/* Transactions List */}
-      <View className="bg-white rounded-[20px] p-4 border border-border">
-        <View className="flex-row justify-between items-center mb-3">
-          <Text className="text-[14.5px] font-extrabold text-textMain">Lịch Sử Giao Dịch Nhận Tiền</Text>
-          <ReceiptText size={16} color="#10B981" />
-        </View>
+              <Text className="text-[30px] font-black text-textMain my-1.5 tracking-[-0.5px]">
+                {formatCurrency(summary.totalRevenue)}
+              </Text>
+              <Text className="text-[13px] text-textSecondary mb-4">
+                {summary.orderCount} đơn hàng hoàn thành trong kỳ
+              </Text>
 
-        {data.transactions.map((tx, idx) => (
-          <View key={tx.id}>
-            <View className="flex-row justify-between items-center py-2.5">
-              <View className="flex-row items-center flex-1 mr-2">
-                <View className="px-2 py-1 rounded-[8px] bg-[#ECFDF5] mr-2.5">
-                  <Text className="text-[10.5px] font-extrabold text-primaryDark">{tx.method}</Text>
+              {/* 2 Kênh Thanh Toán Duy Nhất: VietQR & Tiền Mặt */}
+              <View className="flex-row gap-2.5 pt-3.5 border-t border-[#F1F5F9]">
+                <View className="flex-1 bg-[#F8FAFC] rounded-[14px] p-3 border border-border">
+                  <View className="flex-row items-center gap-1.5 mb-1.5">
+                    <View className="w-5 h-5 rounded-full items-center justify-center bg-[#6366F1]">
+                      <QrCode size={12} color="#FFFFFF" strokeWidth={2.5} />
+                    </View>
+                    <Text className="text-[11px] font-semibold text-textSecondary">VietQR</Text>
+                  </View>
+                  <Text className="text-[15px] font-extrabold text-textMain my-0.5">
+                    {formatCurrency(summary.qrRevenue)}
+                  </Text>
+                  <Text className="text-[10.5px] text-textMuted">
+                    {summary.totalRevenue > 0
+                      ? `${Math.round((summary.qrRevenue / summary.totalRevenue) * 100)}% tổng thu`
+                      : '0% tổng thu'}
+                  </Text>
                 </View>
-                <View className="flex-1">
-                  <Text className="text-[13.5px] font-bold text-textMain">{tx.id} • {tx.table}</Text>
-                  <Text className="text-[11px] text-textMuted mt-0.5">{tx.time}</Text>
+
+                <View className="flex-1 bg-[#F8FAFC] rounded-[14px] p-3 border border-border">
+                  <View className="flex-row items-center gap-1.5 mb-1.5">
+                    <View className="w-5 h-5 rounded-full items-center justify-center bg-[#F59E0B]">
+                      <Coins size={12} color="#FFFFFF" strokeWidth={2.5} />
+                    </View>
+                    <Text className="text-[11px] font-semibold text-textSecondary">Tiền mặt</Text>
+                  </View>
+                  <Text className="text-[15px] font-extrabold text-textMain my-0.5">
+                    {formatCurrency(summary.cashRevenue)}
+                  </Text>
+                  <Text className="text-[10.5px] text-textMuted">
+                    {summary.totalRevenue > 0
+                      ? `${Math.round((summary.cashRevenue / summary.totalRevenue) * 100)}% tổng thu`
+                      : '0% tổng thu'}
+                  </Text>
                 </View>
-              </View>
-              <View className="items-end">
-                <Text className="text-[13.5px] font-extrabold text-primaryDark">+{formatCurrency(tx.amount)}</Text>
-                <Text className="text-[10.5px] text-[#059669] font-semibold">Thành công</Text>
               </View>
             </View>
-            {idx < data.transactions.length - 1 && <View className="h-[1px] bg-[#F1F5F9]" />}
-          </View>
-        ))}
-      </View>
+
+            {/* Visual Breakdown theo mốc ngày */}
+            {dailyTrend.length > 0 && (
+              <View
+                className="bg-white rounded-[20px] p-[18px] border border-border mb-4"
+                style={{
+                  shadowColor: '#0F172A',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 10,
+                  elevation: 2,
+                }}
+              >
+                <View className="flex-row justify-between items-center mb-3.5">
+                  <Text className="text-[14px] font-extrabold text-textMain">Biến Động Doanh Thu</Text>
+                  <Text className="text-[11px] font-bold text-primaryDark bg-[#ECFDF5] px-2 py-0.5 rounded-full">
+                    {getFilterLabel()}
+                  </Text>
+                </View>
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View className="flex-row items-end h-[120px] pt-3 px-1 gap-3">
+                    {dailyTrend.map((d: any, idx: number) => {
+                      const heightPercent = maxTrendRevenue > 0 ? (d.revenue / maxTrendRevenue) * 100 : 10;
+                      const parts = d.date.split('-');
+                      const shortLabel = parts.length === 3 ? `${parts[2]}/${parts[1]}` : d.date;
+                      return (
+                        <View key={idx} className="items-center min-w-[36px]">
+                          <View className="w-4 h-[90px] bg-[#F1F5F9] rounded-full justify-end overflow-hidden">
+                            <View
+                              className="w-full bg-[#00A389] rounded-full"
+                              style={{ height: `${Math.max(heightPercent, 12)}%` }}
+                            />
+                          </View>
+                          <Text className="text-[10px] font-bold text-textMuted mt-1.5">{shortLabel}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Danh sách đơn hàng hoàn thành thực tế */}
+            <View className="bg-white rounded-[20px] p-4 border border-border">
+              <View className="flex-row justify-between items-center mb-3">
+                <Text className="text-[14.5px] font-extrabold text-textMain">Đơn Hàng Đã Thanh Toán</Text>
+                <ReceiptText size={16} color="#10B981" />
+              </View>
+
+              {recentOrders.length === 0 ? (
+                <View className="py-6 items-center">
+                  <Text className="text-xs text-textMuted font-medium">Chưa có đơn hàng trong khoảng thời gian này</Text>
+                </View>
+              ) : (
+                recentOrders.map((ord: any, idx: number) => (
+                  <View key={ord.id || idx}>
+                    <View className="flex-row justify-between items-center py-2.5">
+                      <View className="flex-row items-center flex-1 mr-2">
+                        <View
+                          className={`px-2 py-1 rounded-[8px] mr-2.5 ${
+                            ord.paymentMethod === 'VIETQR' ? 'bg-[#EEF2FF]' : 'bg-[#FEF3C7]'
+                          }`}
+                        >
+                          <Text
+                            className={`text-[10.5px] font-extrabold ${
+                              ord.paymentMethod === 'VIETQR' ? 'text-[#4F46E5]' : 'text-[#D97706]'
+                            }`}
+                          >
+                            {ord.paymentMethod === 'VIETQR' ? 'VietQR' : 'Tiền mặt'}
+                          </Text>
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-[13.5px] font-bold text-textMain">
+                            {ord.orderCode} • {ord.tableName || 'Mang về'}
+                          </Text>
+                          <Text className="text-[11px] text-textMuted mt-0.5">
+                            {new Date(ord.createdAt).toLocaleTimeString('vi-VN', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </Text>
+                        </View>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[13.5px] font-extrabold text-primaryDark">
+                          +{formatCurrency(ord.totalAmount)}
+                        </Text>
+                        <Text className="text-[10.5px] text-[#059669] font-semibold">Hoàn tất</Text>
+                      </View>
+                    </View>
+                    {idx < recentOrders.length - 1 && <View className="h-[1px] bg-[#F1F5F9]" />}
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
+      </ScrollView>
 
       {/* Modal Bộ lọc chi tiết Ngày / Tháng / Năm */}
       <Modal visible={isPickerModalOpen} transparent animationType="fade">
@@ -452,15 +454,15 @@ export const RevenueScreen: React.FC = () => {
               {/* Theo Tháng */}
               {timeframe === 'month' && (
                 <View>
-                  <Text className="text-[11px] font-extrabold text-textMuted mb-2">NĂM</Text>
-                  <View className="flex-row gap-2 mb-3">
+                  <Text className="text-[11px] font-extrabold text-textMuted mb-2">CHỌN NĂM</Text>
+                  <View className="flex-row gap-2 mb-4">
                     {yearsArray.map((y) => (
                       <TouchableOpacity
                         key={y}
-                        className={`flex-1 py-1.5 rounded-[10px] items-center border ${tempYear === y ? 'bg-[#ECFDF5] border-primary' : 'bg-[#F8FAFC] border-border'}`}
+                        className={`flex-1 py-2 rounded-[12px] items-center border ${tempYear === y ? 'bg-[#ECFDF5] border-primary' : 'bg-[#F8FAFC] border-border'}`}
                         onPress={() => setTempYear(y)}
                       >
-                        <Text className={`text-[11.5px] ${tempYear === y ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
+                        <Text className={`text-[12.5px] ${tempYear === y ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
                           {y}
                         </Text>
                       </TouchableOpacity>
@@ -474,7 +476,7 @@ export const RevenueScreen: React.FC = () => {
                       return (
                         <TouchableOpacity
                           key={m}
-                          className={`w-[30%] py-2.5 rounded-[12px] items-center border ${isSelected ? 'bg-primary border-primary' : 'bg-[#F8FAFC] border-border'}`}
+                          className={`w-[48%] py-3 rounded-[12px] items-center justify-center border ${isSelected ? 'bg-primary border-primary' : 'bg-[#F8FAFC] border-border'}`}
                           onPress={() => setTempMonth(m)}
                         >
                           <Text className={`text-[13px] ${isSelected ? 'text-white font-extrabold' : 'font-bold text-textMain'}`}>
@@ -490,20 +492,20 @@ export const RevenueScreen: React.FC = () => {
               {/* Theo Năm */}
               {timeframe === 'year' && (
                 <View>
-                  <Text className="text-[11px] font-extrabold text-textMuted mb-2">CHỌN NĂM TÀI CHÍNH</Text>
-                  <View className="gap-2">
+                  <Text className="text-[11px] font-extrabold text-textMuted mb-2">CHỌN NĂM HOẠT ĐỘNG</Text>
+                  <View className="gap-2.5">
                     {yearsArray.map((y) => {
                       const isSelected = tempYear === y;
                       return (
                         <TouchableOpacity
                           key={y}
-                          className={`flex-row justify-between items-center p-3 rounded-[14px] border ${isSelected ? 'bg-primary border-primary' : 'bg-[#F8FAFC] border-border'}`}
+                          className={`flex-row justify-between items-center p-3.5 rounded-[14px] border ${isSelected ? 'bg-[#ECFDF5] border-primary' : 'bg-[#F8FAFC] border-border'}`}
                           onPress={() => setTempYear(y)}
                         >
-                          <Text className={`text-[14px] ${isSelected ? 'text-white font-extrabold' : 'font-bold text-textMain'}`}>
+                          <Text className={`text-[14px] ${isSelected ? 'text-primaryDark font-extrabold' : 'font-bold text-textMain'}`}>
                             Năm {y}
                           </Text>
-                          {isSelected && <Check size={18} color="#FFFFFF" strokeWidth={2.5} />}
+                          {isSelected && <Check size={18} color="#059669" strokeWidth={2.5} />}
                         </TouchableOpacity>
                       );
                     })}
@@ -512,22 +514,26 @@ export const RevenueScreen: React.FC = () => {
               )}
             </ScrollView>
 
-            {/* Modal Actions Footer */}
-            <View className="flex-row gap-2.5 pt-3.5 mt-2 border-t border-[#F1F5F9]">
-              <TouchableOpacity className="flex-row items-center gap-1.5 px-4 py-3 rounded-full bg-[#F1F5F9]" onPress={resetToToday} activeOpacity={0.8}>
-                <RotateCcw size={15} color="#475569" />
-                <Text className="text-[13px] font-bold text-textSecondary">Hiện tại</Text>
+            {/* Modal Actions */}
+            <View className="flex-row gap-2.5 mt-5 pt-3.5 border-t border-[#F1F5F9]">
+              <TouchableOpacity
+                className="flex-row items-center justify-center gap-1.5 py-3 px-4 rounded-[14px] bg-[#F1F5F9] border border-border"
+                onPress={resetToToday}
+              >
+                <RotateCcw size={14} color="#64748B" />
+                <Text className="text-[12.5px] font-bold text-textSecondary">Hôm Nay</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity className="flex-1 flex-row items-center justify-center gap-1.5 py-3 rounded-full bg-primary" onPress={applyPicker} activeOpacity={0.85}>
-                <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
-                <Text className="text-[13.5px] font-extrabold text-white">Áp Dụng Bộ Lọc</Text>
+              <TouchableOpacity
+                className="flex-1 py-3 rounded-[14px] bg-primary items-center justify-center"
+                onPress={applyPicker}
+              >
+                <Text className="text-[13px] font-extrabold text-white">Áp Dụng</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-      </ScrollView>
     </View>
   );
 };

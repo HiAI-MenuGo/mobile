@@ -81,7 +81,7 @@ export interface RevenueData {
     id: string;
     time: string;
     amount: number;
-    method: 'CASH' | 'VIETQR' | 'CARD';
+    method: 'CASH' | 'VIETQR';
     table: string;
     status: 'COMPLETED' | 'REFUNDED';
   }>;
