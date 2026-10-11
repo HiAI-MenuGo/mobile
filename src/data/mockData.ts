@@ -149,7 +149,7 @@ export const mockNotifications: NotificationItem[] = [
   {
     id: 'n2',
     title: 'Thanh toán VietQR thành công',
-    message: 'Nhận thành công 145.000đ cho hoá đơn HD-8842 từ khách Bàn 03.',
+    message: 'Nhận thành công 145.000đ cho đơn hàng H-002 từ khách Bàn 03.',
     time: '8 phút trước',
     type: 'PAYMENT',
     isRead: false,

@@ -175,6 +175,37 @@ export const api = {
       body: JSON.stringify({ isSoldOut, branchId }),
     }),
 
+  // Upload ảnh lên Cloudinary
+  uploadImage: async (uri: string, filename?: string, mimeType?: string): Promise<{ url: string; publicId: string }> => {
+    const formData = new FormData();
+    const name = filename || `dish_${Date.now()}.jpg`;
+    const type = mimeType || 'image/jpeg';
+    formData.append('file', {
+      uri,
+      name,
+      type,
+    } as any);
+    formData.append('folder', 'hiai-menugo/menu');
+
+    const url = `${API_BASE_URL}/upload/image`;
+    const headers: Record<string, string> = {};
+    if (inMemoryToken) {
+      headers.Authorization = `Bearer ${inMemoryToken}`;
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    const json = await res.json();
+    if (!json.success || !json.data?.url) {
+      throw new Error(json.message || 'Tải ảnh lên thất bại');
+    }
+    return json.data;
+  },
+
   // 6. Inventory (Task B-012)
   getIngredients: (branchId: string = 'default-branch') =>
     request<
@@ -239,5 +270,56 @@ export const api = {
       page: number;
       totalPages: number;
     }>(`/api/orders/history?${q.toString()}`);
+  },
+
+  // 8. Doanh thu & Báo cáo
+  getRevenueReport: (params: { startDate?: string; endDate?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.startDate) q.append('startDate', params.startDate);
+    if (params.endDate) q.append('endDate', params.endDate);
+    return request<{
+      branch: { id: string; name: string; code: string };
+      tenantName: string;
+      dateRange: { startDate: string; endDate: string };
+      summary: {
+        totalRevenue: number;
+        previousRevenue: number;
+        growthPercent: number;
+        orderCount: number;
+        avgOrderValue: number;
+        cashRevenue: number;
+        qrRevenue: number;
+        totalDiscount: number;
+      };
+      dailyTrend: Array<{
+        date: string;
+        orders: number;
+        revenue: number;
+        cash: number;
+        vietqr: number;
+        discount: number;
+      }>;
+      paymentBreakdown: Array<{
+        method: string;
+        label: string;
+        amount: number;
+        percentage: number;
+      }>;
+      topItems: Array<{
+        name: string;
+        soldCount: number;
+        revenue: number;
+        category: string;
+      }>;
+      recentOrders: Array<{
+        id: string;
+        orderCode: string;
+        tableName: string;
+        createdAt: string;
+        totalAmount: number;
+        paymentMethod: string;
+        status: string;
+      }>;
+    }>(`/api/analytics/revenue?${q.toString()}`);
   },
 };

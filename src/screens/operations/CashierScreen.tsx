@@ -45,12 +45,9 @@ export const CashierScreen: React.FC<CashierScreenProps> = ({ onBack }) => {
   const insets = useSafeAreaInsets();
   const dynamicPaddingBottom = insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6;
 
-  const [bills, setBills] = useState<PendingBill[]>([
-    { sessionId: 'sess-02', tableId: 'tbl-02', tableName: 'Bàn 02', count: 3, total: 125000, time: '11:42', staff: 'Nguyễn Văn A' },
-    { sessionId: 'sess-05', tableId: 'tbl-05', tableName: 'Bàn 05', count: 2, total: 90000, time: '11:48', staff: 'Trần Thị B' },
-  ]);
+  const [bills, setBills] = useState<PendingBill[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedTable, setSelectedTable] = useState<string | null>('Bàn 02');
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
 
   // Modal VietQR
   const [activeQrModal, setActiveQrModal] = useState<PendingBill | null>(null);
@@ -72,7 +69,7 @@ export const CashierScreen: React.FC<CashierScreenProps> = ({ onBack }) => {
     try {
       setLoading(true);
       const data = await api.getPendingPayments();
-      if (data && data.length > 0) {
+      if (Array.isArray(data)) {
         setBills(
           data.map((d: any) => ({
             sessionId: d.sessionId,
@@ -87,7 +84,7 @@ export const CashierScreen: React.FC<CashierScreenProps> = ({ onBack }) => {
         );
       }
     } catch (err) {
-      console.log('[CashierScreen] Fallback to local bills');
+      console.log('[CashierScreen] Could not load pending payments:', err);
     } finally {
       setLoading(false);
     }

@@ -10,6 +10,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -20,6 +21,7 @@ import {
   ImageIcon,
   Camera,
   Plus,
+  Cloud,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +29,7 @@ import { useMenuStore } from '../../data/menuStore';
 import { MenuItem, ModifierGroup } from '../../types';
 import { ModifierDetailScreen } from './ModifierDetailScreen';
 import { PrepTimeDetailScreen } from './PrepTimeDetailScreen';
+import { api } from '../../services/api';
 
 interface MenuItemFormScreenProps {
   initialItem?: MenuItem | null;
@@ -71,6 +74,7 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
   const [description, setDescription] = useState(initialItem?.description || '');
   const [imageUrl, setImageUrl] = useState(initialItem?.imageUrl || PRESET_IMAGES[0].url);
   const [isPopular, setIsPopular] = useState(!!initialItem?.isPopular);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Modifier Groups State (Tuỳ chỉnh món: Đường, Đá, Size, Topping...)
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>(
@@ -96,6 +100,29 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
     setPrice((current + amount).toString());
   };
 
+  const uploadSelectedAsset = async (asset: ImagePicker.ImagePickerAsset) => {
+    setImageUrl(asset.uri);
+    setIsUploading(true);
+    try {
+      const uploaded = await api.uploadImage(
+        asset.uri,
+        asset.fileName || undefined,
+        asset.mimeType || undefined
+      );
+      if (uploaded?.url) {
+        setImageUrl(uploaded.url);
+      }
+    } catch (err: any) {
+      console.warn('Upload image error:', err?.message);
+      Alert.alert(
+        'Tải ảnh lên máy chủ',
+        'Không thể tải ảnh lên Cloudinary lúc này, ảnh sẽ được lưu tạm cục bộ: ' + (err?.message || '')
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const pickFromLibrary = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -109,7 +136,7 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
       quality: 0.8,
     });
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setImageUrl(result.assets[0].uri);
+      await uploadSelectedAsset(result.assets[0]);
     }
   };
 
@@ -125,7 +152,7 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
       quality: 0.8,
     });
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setImageUrl(result.assets[0].uri);
+      await uploadSelectedAsset(result.assets[0]);
     }
   };
 
@@ -484,13 +511,37 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
             </TouchableOpacity>
           </View>
 
+          {isUploading && (
+            <View className="flex-row items-center justify-center gap-2 py-2.5 px-3 bg-emerald-50 rounded-xl border border-emerald-200">
+              <ActivityIndicator size="small" color="#059669" />
+              <Text className="text-xs font-bold text-emerald-700">Đang tải ảnh lên Cloudinary...</Text>
+            </View>
+          )}
+
           {imageUrl ? (
             <View className="flex-row items-center bg-white rounded-2xl p-2 border border-emerald-200 gap-2.5 shadow-sm">
               <Image source={{ uri: imageUrl }} className="w-14 h-14 rounded-xl bg-slate-100" />
               <View className="flex-1">
-                <Text className="text-[12.5px] font-bold text-slate-900">Ảnh đã chọn</Text>
+                <View className="flex-row items-center gap-1.5">
+                  <Text className="text-[12.5px] font-bold text-slate-900">Ảnh món ăn</Text>
+                  {imageUrl.includes('cloudinary') ? (
+                    <View className="flex-row items-center gap-1 bg-emerald-100 px-1.5 py-0.5 rounded-md">
+                      <Cloud size={10} color="#059669" />
+                      <Text className="text-[9.5px] font-bold text-emerald-700">Cloudinary</Text>
+                    </View>
+                  ) : imageUrl.startsWith('http') ? (
+                    <View className="flex-row items-center gap-1 bg-blue-50 px-1.5 py-0.5 rounded-md">
+                      <CheckCircle2 size={10} color="#2563EB" />
+                      <Text className="text-[9.5px] font-bold text-blue-700">Online</Text>
+                    </View>
+                  ) : (
+                    <View className="flex-row items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md">
+                      <Text className="text-[9.5px] font-bold text-amber-700">Cục bộ</Text>
+                    </View>
+                  )}
+                </View>
                 <TouchableOpacity onPress={() => setImageUrl('')} activeOpacity={0.7}>
-                  <Text className="text-[11.5px] font-semibold text-emerald-600 mt-0.5">Xoá ảnh</Text>
+                  <Text className="text-[11.5px] font-semibold text-rose-500 mt-1">Xoá ảnh</Text>
                 </TouchableOpacity>
               </View>
             </View>
