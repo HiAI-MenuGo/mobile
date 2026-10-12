@@ -569,11 +569,11 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
           </View>
         </View>
 
-        {/* Món bán chạy / Best Seller */}
+        {/* Nổi bật */}
         <View className="flex-row items-center justify-between bg-orange-50 rounded-2xl p-3.5 border border-orange-200 shadow-sm">
           <View className="flex-row items-center gap-1.5">
             <Flame size={17} color="#EA580C" />
-            <Text className="text-[13.5px] font-bold text-orange-700">Món Bán Chạy (Nổi bật)</Text>
+            <Text className="text-[13.5px] font-bold text-orange-700">Nổi bật</Text>
           </View>
           <Switch
             value={isPopular}

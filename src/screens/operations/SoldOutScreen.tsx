@@ -225,7 +225,7 @@ export const SoldOutScreen: React.FC<SoldOutScreenProps> = ({
                       {item.isPopular && (
                         <View className="flex-row items-center gap-0.5 bg-orange-100 px-1.5 py-0.5 rounded">
                           <Flame size={10} color="#EA580C" />
-                          <Text className="text-[9.5px] font-bold text-orange-700">Bán chạy</Text>
+                          <Text className="text-[9.5px] font-bold text-orange-700">Nổi bật</Text>
                         </View>
                       )}
                     </View>
