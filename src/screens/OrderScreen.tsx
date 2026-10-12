@@ -310,7 +310,7 @@ export const OrderScreen: React.FC<OrderScreenProps> = ({
                 {item.isPopular && (
                   <View className="absolute top-2 left-2 bg-[#EF4444] flex-row items-center gap-1 px-1.5 py-0.5 rounded-[6px] z-10">
                     <Sparkles size={10} color="#FFFFFF" />
-                    <Text className="text-white text-[9px] font-extrabold">Bán chạy</Text>
+                    <Text className="text-white text-[9px] font-extrabold">Nổi bật</Text>
                   </View>
                 )}
 

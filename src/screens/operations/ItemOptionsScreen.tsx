@@ -138,7 +138,7 @@ export const ItemOptionsScreen: React.FC<ItemOptionsScreenProps> = ({
                 {item.isPopular && (
                   <View className="flex-row items-center gap-1 bg-[#FFEDD5] px-2 py-0.5 rounded-full">
                     <Sparkles size={11} color="#C2410C" />
-                    <Text className="text-[10.5px] font-bold text-[#C2410C]">Bán chạy</Text>
+                    <Text className="text-[10.5px] font-bold text-[#C2410C]">Nổi bật</Text>
                   </View>
                 )}
               </View>
