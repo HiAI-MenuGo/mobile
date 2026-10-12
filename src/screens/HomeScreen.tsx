@@ -75,7 +75,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
             <View className="flex-row items-center gap-1.5 bg-[#ECFDF5] px-2.5 py-1 rounded-full border border-[#A7F3D0]">
               <View className="w-2 h-2 rounded-full bg-primary" />
               <Text className="text-[11.5px] font-bold text-primaryDark">
-                {user?.role === 'ADMIN' ? 'Admin' : user?.role === 'CASHIER' ? 'Thu ngân' : 'Đang mở ca'}
+                {user?.role === 'ADMIN' ? 'Admin' : user?.role === 'CASHIER' ? 'Nhân viên' : 'Đang mở ca'}
               </Text>
             </View>
             <Image

@@ -14,6 +14,9 @@ import {
   ChevronRight,
   ClipboardList,
   BookOpen,
+  BellRing,
+  Users,
+  MessageSquare,
 } from 'lucide-react-native';
 import { MenuItem, CartItem, TabType, OperationSubView } from '../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +30,8 @@ import { CashierScreen } from './operations/CashierScreen';
 import { SoldOutScreen } from './operations/SoldOutScreen';
 import { InventoryScreen } from './operations/InventoryScreen';
 import { HistoryScreen } from './operations/HistoryScreen';
+import { StaffScreen } from './operations/StaffScreen';
+import { RequestsScreen } from './operations/RequestsScreen';
 import { useHistoryStore, OrderHistoryItem } from '../data/historyStore';
 
 interface OperationsScreenProps {
@@ -97,6 +102,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     soldOutCount: 2,
     menuItemCount: menuItems.length,
   });
+  const [pendingCallsCount, setPendingCallsCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchSummary = useCallback(async () => {
@@ -110,9 +116,21 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     }
   }, []);
 
+  const fetchPendingCalls = useCallback(async () => {
+    try {
+      const res = await api.fetchCustomerCalls({ status: 'PENDING' });
+      if (res) {
+        setPendingCallsCount(res.summary?.pending || 0);
+      }
+    } catch (err) {
+      console.log('[OperationsScreen] Fetch pending calls failed');
+    }
+  }, []);
+
   useEffect(() => {
     fetchSummary();
-  }, [fetchSummary]);
+    fetchPendingCalls();
+  }, [fetchSummary, fetchPendingCalls]);
 
   // Cập nhật lại badge khi nhận sự kiện Socket.IO (Task B-004, B-011)
   useSocketEvent('order:new', fetchSummary);
@@ -127,10 +145,12 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     }
     fetchSummary();
   });
+  useSocketEvent('call_staff:request', fetchPendingCalls);
 
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchSummary();
+    await fetchPendingCalls();
     setRefreshing(false);
   };
 
@@ -227,12 +247,20 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     );
   }
 
+  if (currentView === 'staff') {
+    return <StaffScreen onBack={() => handleSetView('hub')} />;
+  }
+
+  if (currentView === 'requests') {
+    return <RequestsScreen onBack={() => handleSetView('hub')} />;
+  }
+
   // MAIN VIEW: Trung Tâm Thao Tác (Hub)
   const allFeatures = [
     {
       id: 'order',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Tạo Order / Gọi Món Nhanh',
+      title: 'Đặt Món / Gọi Món Nhanh',
       icon: UtensilsCrossed,
       color: '#059669',
       bgColor: '#ECFDF5',
@@ -245,7 +273,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     {
       id: 'orders',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Quản Lý Đơn Hàng Live',
+      title: 'Quản Lý Đơn Hàng',
       icon: ClipboardList,
       color: '#2563EB',
       bgColor: '#EFF6FF',
@@ -258,7 +286,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     {
       id: 'tables',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Sơ Đồ Bàn Ăn',
+      title: 'Sơ Đồ Bàn',
       icon: UtensilsCrossed,
       color: '#D97706',
       bgColor: '#FFFBEB',
@@ -271,51 +299,77 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     {
       id: 'cashier',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Quản Lý Thanh Toán',
+      title: 'Thanh Toán',
       icon: CreditCard,
       color: '#7C3AED',
       bgColor: '#FAF5FF',
       borderColor: '#E9D5FF',
-      badge: `${summary.pendingPayment} đơn chờ thanh toán`,
+      badge: `${summary.pendingPayment} chờ thu`,
       badgeColor: '#7C3AED',
       badgeBg: '#FAF5FF',
       action: () => handleSetView('cashier'),
     },
     {
       id: 'sold_out',
-      group: 'QUẢN LÝ THỰC ĐƠN & KHO',
-      title: 'Quản Lý Thực Đơn',
+      group: 'THỰC ĐƠN & KHO',
+      title: 'Thực Đơn',
       icon: BookOpen,
       color: '#059669',
       bgColor: '#ECFDF5',
       borderColor: '#A7F3D0',
-      badge: `${summary.menuItemCount} món • ${summary.soldOutCount} tạm hết`,
+      badge: `${summary.menuItemCount} món • ${summary.soldOutCount} hết`,
       badgeColor: summary.soldOutCount > 0 ? '#E11D48' : '#059669',
       badgeBg: summary.soldOutCount > 0 ? '#FFF1F2' : '#ECFDF5',
       action: () => handleSetView('sold_out'),
     },
     {
       id: 'inventory',
-      group: 'QUẢN LÝ THỰC ĐƠN & KHO',
-      title: 'Quản Lý Nguyên Liệu',
+      group: 'THỰC ĐƠN & KHO',
+      title: 'Nguyên Liệu',
       icon: Package,
       color: '#D97706',
       bgColor: '#FEFCE8',
       borderColor: '#FEF08A',
-      badge: '2 cảnh báo',
+      badge: 'Cảnh báo kho',
       badgeColor: '#D97706',
       badgeBg: '#FEF3C7',
       action: () => handleSetView('inventory'),
     },
     {
+      id: 'staff',
+      group: 'NHÂN VIÊN & YÊU CẦU',
+      title: 'Nhân Viên',
+      icon: Users,
+      color: '#00A389',
+      bgColor: '#E6F7F4',
+      borderColor: '#99F6E4',
+      badge: 'Gọi phục vụ',
+      badgeColor: '#00A389',
+      badgeBg: '#E6F7F4',
+      action: () => handleSetView('staff'),
+    },
+    {
+      id: 'requests',
+      group: 'NHÂN VIÊN & YÊU CẦU',
+      title: 'Yêu Cầu Khách',
+      icon: MessageSquare,
+      color: '#F59E0B',
+      bgColor: '#FFFBEB',
+      borderColor: '#FDE68A',
+      badge: `${pendingCallsCount > 0 ? pendingCallsCount : 0} mới`,
+      badgeColor: pendingCallsCount > 0 ? '#EF4444' : '#F59E0B',
+      badgeBg: pendingCallsCount > 0 ? '#FEF2F2' : '#FFFBEB',
+      action: () => handleSetView('requests'),
+    },
+    {
       id: 'history',
-      group: 'LỊCH SỬ & TRA CỨU ĐƠN',
+      group: 'LỊCH SỬ & BÁO CÁO',
       title: 'Lịch Sử Đơn',
       icon: History,
       color: '#0D9488',
       bgColor: '#F0FDFA',
       borderColor: '#99F6E4',
-      badge: '142 đơn',
+      badge: 'Tra cứu đơn',
       badgeColor: '#0D9488',
       badgeBg: '#F0FDFA',
       action: () => handleSetView('history'),

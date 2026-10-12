@@ -91,6 +91,7 @@ export const api = {
         status: 'EMPTY' | 'OCCUPIED' | 'RESERVED';
         currentSessionId?: string;
         customerCount?: number;
+        scannedCustomerCount?: number;
         totalAmount?: number;
       }>
     >(`/api/tables?branchId=${branchId}`),
@@ -152,6 +153,26 @@ export const api = {
       amount: number;
       expiresAt: string;
     }>('/api/cashier/create-qr', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Customer Call (Gọi nhân viên từ QR khách)
+  sendCustomerCall: (data: { tableId: string; tableName?: string; type: 'PAYMENT' | 'STAFF'; reason?: string; paymentMethod?: 'CASH' | 'VIETQR' }) =>
+    request<{
+      id: string;
+      tenantId: string;
+      branchId: string;
+      tableId: string;
+      tableName: string;
+      type: 'PAYMENT' | 'STAFF';
+      paymentMethod?: 'CASH' | 'VIETQR';
+      reason: string;
+      status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
+      createdAt: string;
+      updatedAt: string;
+      resolvedAt?: string;
+    }>('/api/customer-requests/call', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -322,4 +343,47 @@ export const api = {
       }>;
     }>(`/api/analytics/revenue?${q.toString()}`);
   },
+
+  // Customer Requests (Yêu cầu từ khách hàng - dùng chung API web)
+  fetchCustomerCalls: (params?: { status?: string; type?: string; branchId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.status && params.status !== 'ALL') qs.set('status', params.status);
+    if (params?.type && params.type !== 'ALL') qs.set('type', params.type);
+    if (params?.branchId && params.branchId !== 'ALL') qs.set('branchId', params.branchId);
+    return request<{ calls: Array<{
+      id: string;
+      tenantId: string;
+      branchId: string;
+      tableId: string;
+      tableName: string;
+      type: 'PAYMENT' | 'STAFF';
+      paymentMethod?: 'CASH' | 'VIETQR';
+      reason: string;
+      status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
+      createdAt: string;
+      updatedAt: string;
+      resolvedAt?: string;
+    }>; summary: { total: number; pending: number; processing: number } }>(
+      `/api/customer-requests/calls${qs.toString() ? `?${qs.toString()}` : ''}`
+    );
+  },
+
+  updateCustomerCallStatus: (id: string, status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED') =>
+    request<{
+      id: string;
+      tenantId: string;
+      branchId: string;
+      tableId: string;
+      tableName: string;
+      type: 'PAYMENT' | 'STAFF';
+      paymentMethod?: 'CASH' | 'VIETQR';
+      reason: string;
+      status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
+      createdAt: string;
+      updatedAt: string;
+      resolvedAt?: string;
+    }>(`/api/customer-requests/calls/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
 };

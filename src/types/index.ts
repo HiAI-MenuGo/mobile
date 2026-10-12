@@ -8,7 +8,9 @@ export type OperationSubView =
   | 'cashier'
   | 'sold_out'
   | 'inventory'
-  | 'history';
+  | 'history'
+  | 'staff'
+  | 'requests';
 
 export interface OrderItemDetail {
   id: string;

@@ -20,6 +20,7 @@ import {
   RefreshCw,
   X,
   CheckCircle2,
+  User,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../services/api';
@@ -31,6 +32,7 @@ export interface TableItem {
   status: 'EMPTY' | 'OCCUPIED' | 'RESERVED';
   currentSessionId?: string;
   customerCount?: number;
+  scannedCustomerCount?: number;
   totalAmount?: number;
   updatedAt?: string;
 }
@@ -59,6 +61,22 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
   };
 
+  const renderSeatIcons = (count: number, maxSeats: number = 10) => {
+    const displayCount = Math.min(count, maxSeats);
+    const icons = [];
+    for (let i = 0; i < displayCount; i++) {
+      icons.push(
+        <User key={i} size={14} color="#D97706" style={{ marginRight: 2 }} />
+      );
+    }
+    if (count > maxSeats) {
+      icons.push(
+        <Text key="more" className="text-[11px] font-bold text-amber-600 ml-1">+{count - maxSeats}</Text>
+      );
+    }
+    return icons;
+  };
+
   // Tải danh sách bàn từ API
   const loadTables = async () => {
     try {
@@ -85,10 +103,35 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
   };
 
   // Lắng nghe cập nhật trạng thái bàn qua Socket.IO (Task B-005)
-  useSocketEvent('table:status-changed', (payload: { tableId: string; status: 'EMPTY' | 'OCCUPIED' | 'RESERVED' }) => {
+  useSocketEvent('table:status-changed', (payload: { tableId: string; status: 'EMPTY' | 'OCCUPIED' | 'RESERVED'; scannedCustomerCount?: number }) => {
     console.log('⚡ [TablesScreen] Table status changed:', payload);
     setTables((prev) =>
-      prev.map((t) => (t.id === payload.tableId ? { ...t, status: payload.status } : t))
+      prev.map((t) => {
+        if (t.id === payload.tableId) {
+          const updates: any = { status: payload.status };
+          if (payload.status === 'OCCUPIED') {
+            updates.scannedCustomerCount = payload.scannedCustomerCount ?? (t.scannedCustomerCount || 1);
+          } else if (payload.status === 'EMPTY') {
+            updates.scannedCustomerCount = 0;
+          }
+          return { ...t, ...updates };
+        }
+        return t;
+      })
+    );
+  });
+
+  // Lắng nghe đơn mới để tăng số ghế khi có khách mới order
+  useSocketEvent('order:new', (payload: { tableId?: string; tableName?: string }) => {
+    if (!payload.tableId) return;
+    console.log('⚡ [TablesScreen] New order for table:', payload.tableId);
+    setTables((prev) =>
+      prev.map((t) => {
+        if (t.id === payload.tableId && t.status === 'OCCUPIED') {
+          return { ...t, scannedCustomerCount: (t.scannedCustomerCount || 1) + 1 };
+        }
+        return t;
+      })
     );
   });
 
@@ -187,17 +230,22 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
                 </View>
 
                 {/* Thông tin bàn */}
-                {isOccupied ? (
-                  <View className="mt-1">
-                    <View className="flex-row items-center gap-1 mb-1">
-                      <Users size={12} color="#D97706" />
-                      <Text className="text-xs font-semibold text-amber-700">{table.customerCount || 2} khách</Text>
+{isOccupied ? (
+                    <View className="mt-1">
+                      <View className="flex-row items-center gap-1 mb-1">
+                        <Users size={12} color="#D97706" />
+                        <Text className="text-xs font-semibold text-amber-700">
+                          {table.scannedCustomerCount || table.customerCount || 1} khách
+                        </Text>
+                      </View>
+                      <View className="flex-row flex-wrap items-center gap-1 mb-1" style={{ minHeight: 20 }}>
+                        {renderSeatIcons(table.scannedCustomerCount || 1, table.customerCount || 4)}
+                      </View>
+                      <Text className="text-sm font-black text-emerald-600">
+                        {formatCurrency(table.totalAmount || 0)}
+                      </Text>
                     </View>
-                    <Text className="text-sm font-black text-emerald-600">
-                      {formatCurrency(table.totalAmount || 0)}
-                    </Text>
-                  </View>
-                ) : isReserved ? (
+                  ) : isReserved ? (
                   <View className="mt-1">
                     <View className="flex-row items-center gap-1 mb-1">
                       <Clock size={12} color="#4F46E5" />

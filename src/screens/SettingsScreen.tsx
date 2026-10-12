@@ -51,7 +51,7 @@ import { UserProfile } from '../types';
 const AVAILABLE_STAFF_PROFILES: UserProfile[] = [
   {
     name: 'Nguyễn Vy',
-    role: 'Thu Ngân & Phục Vụ',
+    role: 'Nhân viên',
     code: 'NV-2028',
     phone: '0912 345 678',
     email: 'nguyenvy@menu-go.vn',
@@ -175,7 +175,7 @@ export const SettingsScreen: React.FC = () => {
         : currentUser?.role === 'ADMIN'
         ? 'Quản Trị Viên (Admin)'
         : currentUser?.role === 'CASHIER'
-        ? 'Thu Ngân'
+        ? 'Nhân viên'
         : 'Nhân Viên Vận Hành',
     code: currentUser?.id ? `NV-${currentUser.id.substring(0, 4).toUpperCase()}` : 'NV-2026',
     phone: '0901 234 567',
