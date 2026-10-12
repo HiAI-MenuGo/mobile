@@ -1,123 +1,436 @@
-# HiAI-MenuGo — Mandatory Rules (RULES)
+# Mobile Rules — HiAI-MenuGo (Expo / React Native)
 
-> Luật cấm và quy tắc bắt buộc. Vi phạm = bug bảo mật hoặc phá vỡ UX. Đọc kỹ trước khi viết bất kỳ dòng code nào.
->
-> - 📖 Nghiệp vụ: [BUSINESS.md](./BUSINESS.md) · 🏗️ Stack: [TECHS.md](./TECHS.md)
-> - 🎨 Design: [SKILLS.md](./SKILLS.md) · 🧭 Index: [AGENTS.md](./AGENTS.md)
+## 1. Architecture & Navigation
+
+### Custom Hub Pattern (No React Navigation / Expo Router)
+```
+App.tsx
+  └── BottomNav (5 tabs)
+        ├── Home        → HomeScreen
+        ├── Order       → OrderScreen (POS + Cart)
+        ├── Operations  → OperationsScreen (Hub)
+        │     ├── orders          → OrdersScreen (Quản lý đơn hàng live)
+        │     ├── cashier         → CashierScreen
+        │     ├── tables          → TablesScreen
+        │     ├── sold-out        → SoldOutScreen
+        │     ├── inventory       → InventoryScreen
+        │     ├── history         → HistoryScreen
+        │     ├── item-options    → ItemOptionsScreen
+        │     ├── menu-item-form  → MenuItemFormScreen
+        │     ├── modifier-detail → ModifierDetailScreen
+        │     └── prep-time       → PrepTimeDetailScreen
+        ├── Revenue     → RevenueScreen
+        └── Settings    → SettingsScreen
+```
+
+### Navigation State (App.tsx)
+```typescript
+const [activeTab, setActiveTab] = useState<TabType>('home');
+const [operationSubView, setOperationSubView] = useState<OperationSubView | null>(null);
+
+// Navigate:
+onNavigate('operations', 'cashier'); // setActiveTab('operations'), setOperationSubView('cashier')
+onNavigate('home'); // setActiveTab('home'), setOperationSubView(null)
+```
+
+### Rules
+- **Never** install `react-navigation`, `expo-router`, or any routing library.
+- All navigation via `activeTab` + `operationSubView` props.
+- `BottomNav.tsx` renders tab bar, highlights active.
+- `OperationsScreen.tsx` renders sub-view based on `operationSubView`.
 
 ---
 
-## 1. Multi-Tenant RBAC (CRITICAL — Quy Tắc Bảo Mật Số 1)
+## 2. State Management (Zustand)
 
-SaaS Multi-Tenant — cô lập dữ liệu là yêu cầu an ninh bắt buộc:
+### Stores
+| Store | Path | Purpose |
+|-------|------|---------|
+| `useMenuStore` | `src/data/menuStore.ts` | Menu items, categories, fetch from API |
+| `useHistoryStore` | `src/data/historyStore.ts` | Order history, pagination, filters |
+| `useAuthStore` | `src/data/authStore.ts` | User, tokens, login/logout, secure storage |
 
-| Role | Phạm vi | Giới hạn |
-|---|---|---|
-| `PLATFORM_ADMIN` | SaaS Operator | Chỉ `/api/platform-admin/*` và `/platform-admin` web. **ZERO ACCESS** dữ liệu kinh doanh của quán. |
-| `ADMIN` | Chủ thương hiệu | Toàn bộ chi nhánh trong cùng `tenantId`. |
-| `MANAGER` | Quản lý chi nhánh | **LUÔN** append `branchId: req.user.branchId` vào query. |
-| `KITCHEN` | Bếp / pha chế | Chỉ KDS routes + toggle sold-out. Không chạm thanh toán. |
-| `CASHIER` | Thu ngân / phục vụ | Chỉ POS/Cashier routes + hoàn kho (inventory reverse). |
+### Rules
+- **No** Redux, Context API for global state.
+- Local component state: `useState` / `useReducer` (cart, form inputs, UI toggles).
+- Selectors: `useMenuStore(s => s.items)` not `useMenuStore()`.
 
+---
+
+## 3. API Client (`src/services/api.ts`)
+
+### Base URL Resolution
 ```typescript
-// ĐÚNG — luôn có tenantId
-const items = await prisma.menuItem.findMany({
-  where: { tenantId: req.user.tenantId, branchId: req.user.branchId },
-});
+// Platform-aware
+const DEFAULT_URL = Platform.OS === 'android' 
+  ? 'http://10.0.2.2:5001'  // Android emulator → host machine
+  : 'http://localhost:5001'; // iOS Simulator / Web / Device
+```
 
-// SAI NGHIÊM TRỌNG — rò rỉ dữ liệu liên quán
-const items = await prisma.menuItem.findMany({
-  where: { branchId: req.user.branchId }
+### Usage
+```typescript
+import { api } from '@/services/api';
+
+// GET
+const tables = await api.getTables(branchId);
+
+// POST
+await api.updateTableStatus(tableId, 'OCCUPIED', branchId);
+
+// Auth
+const { user, accessToken, refreshToken } = await api.login(email, password);
+```
+
+### Token Management
+- `setAuthToken(token)` / `getAuthToken()` in `api.ts` — in-memory + Axios default header.
+- `authStore` persists to **expo-secure-store** (encrypted, not AsyncStorage).
+- Auto-refresh on 401: `authStore.loadFromStorage()` → tries `/api/auth/refresh`.
+
+---
+
+## 4. Socket.IO (`src/hooks/useSocket.ts`)
+
+### Singleton Pattern
+```typescript
+let sharedSocket: Socket | null = null;
+
+export function getSocket(config): Socket {
+  if (!sharedSocket) { /* create with io() */ }
+  return sharedSocket;
+}
+
+export function useSocket(config) { /* connection state + emit helper */ }
+export function useSocketEvent(event, handler, deps) { /* auto-subscribe */ }
+```
+
+### Connection Config
+```typescript
+getSocket({
+  token: authToken,           // JWT access token
+  tenantId: 'default-tenant', // from user.tenantId
+  branchId: 'default-branch', // from user.branchId or selected
+  autoConnect: true,
 });
 ```
 
-Auth JWT thuần: `authMiddleware` + `requireRole([...])` — xem [TECHS.md](./TECHS.md#6-auth--jwt-thuần-bắt-buộc-không-dùng-auth-dịch-vụ). Cấm Supabase Auth / NextAuth / Clerk.
+### Room & Events
+- Joins: `branch:{branchId}` (staff) or `table:{tableId}` (guest QR).
+- Listens: `order:new` → `soundService.playNewOrderAlert()`
+- Listens: `payment:completed` → `soundService.playPaymentCompleteAlert()`
+
+### Usage in Screens
+```typescript
+const { isConnected } = useSocket({ token, tenantId, branchId });
+
+// Subscribe to events
+useSocketEvent('order:new', (data) => { refreshOrders(); }, []);
+useSocketEvent('table:status-changed', (data) => { updateTable(data); }, []);
+```
 
 ---
 
-## 2. Quy Chuẩn Backend & API
+## 5. Theme System (`src/theme/index.ts`)
 
-1. **Response:** LUÔN qua `ApiResponse` helper (`src/utils/response.ts`):
-   ```typescript
-   ApiResponse.success(res, data, 'Lấy danh sách món thành công');
-   ApiResponse.error(res, 'ITEM_NOT_FOUND', 'Món không tồn tại', 404);
-   ```
-2. **Auth middleware:** `router.get('/orders', authMiddleware, requireRole(['ADMIN','MANAGER','CASHIER']), controller)` — `req.user` có `userId, tenantId, branchId, role, permissions`.
-3. **Validation:** mọi body qua Zod `validateBody(schema)`:
-   ```typescript
-   const createItemSchema = z.object({
-     name: z.string().min(1, 'Tên món không được để trống'),
-     price: z.number().positive('Giá phải lớn hơn 0'),
-     categoryId: z.string().uuid(),
-   });
-   ```
-4. **Socket events:** chỉ dùng 11 events chuẩn trong [TECHS.md](./TECHS.md#7-socketio-events-chuẩn-srcsocketseventsts). Không tự đặt tên event mới khi chưa thống nhất.
-5. **Không query SQL thô** — chỉ Prisma. Sửa schema → `npx prisma format` + `npx prisma generate`.
+### Mandatory Usage
+```typescript
+import { theme } from '@/theme';
 
----
+// Colors
+theme.colors.primary        // #00A389
+theme.colors.background     // #0F172A (dark)
+theme.colors.surface        // #1E293B
+theme.colors.textPrimary    // #F8FAFC
+theme.colors.textSecondary  // #94A3B8
+theme.colors.border         // #334155
 
-## 3. Quy Chuẩn Mobile App (`mobile/`)
+// Spacing
+theme.spacing.xs  // 4
+theme.spacing.sm  // 8
+theme.spacing.md  // 16
+theme.spacing.lg  // 24
 
-1. **Cấm React Navigation / Expo Router.** Điều hướng qua `activeTab` (`TabType`) + `operationSubView` (`OperationSubView`) trong `App.tsx` và `OperationsScreen.tsx`. Màn hình mới → thêm giá trị vào `OperationSubView` (`types/index.ts`) + branch trong `OperationsScreen.tsx`.
-2. **Cart composite key (khóa cứng):**
-   ```ts
-   const cartItemId = `${item.id}__${JSON.stringify(modifiers)}__${note}`;
-   ```
-   Tăng/giảm/xóa **bắt buộc dùng `cartItemId`**, không dùng `item.id` thuần khi món có modifiers/note. (Bug đã biết: `OrderScreen.tsx` đang truyền `item.id` — phải sửa khi chạm logic cart.)
-3. **Safe Area:** mọi màn hình có header/dock phải dùng `useSafeAreaInsets()`. Không hardcode pixel, không dùng `Constants.statusBarHeight`.
-4. **Theme Tokens:** không hardcode hex trong component con — luôn `theme.colors.*`, `theme.radii.*`, `theme.shadows.*`.
-5. **Icons:** duy nhất `lucide-react-native`, `strokeWidth` 2~2.5.
-6. **Zustand:** `useMenuStore` là single source cho menu; `mockMenuItems` chỉ là seed. Không mutate mock trực tiếp — qua `addItem/updateItem/deleteItem/addCategory` (nhớ dedupe `categories`).
-7. **Mock vs API:** hiện tại data là mock. Khi nối API giữ nguyên interfaces trong `src/types`, chỉ thay implementation + thêm loading/error states.
-8. **Naming:** component PascalCase, store camelCase. Chưa có import alias — dùng relative `../theme`, `../types`, `../data/*`.
+// Border Radius
+theme.radii.sm  // 8
+theme.radii.md  // 12
+theme.radii.lg  // 16
+theme.radii.xl  // 24
 
----
+// Shadows
+theme.shadows.card
+theme.shadows.modal
+```
 
-## 4. Quy Chuẩn Web Frontend (`frontend/`)
+### Forbidden
+```tsx
+// ❌ Never hardcode
+<View style={{ backgroundColor: '#FF5733' }}>
+<Text style={{ color: '#FFFFFF' }}>
 
-1. **i18n:** dùng `useI18n()` từ `@/context/i18nContext`; từ mới bổ sung vào `frontend/context/i18nContext.tsx`.
-2. **Food vs Drink an toàn** — `item.category` có thể là string hoặc `{ id, name }`, luôn type-check trước `.toLowerCase()`:
-   ```typescript
-   const catRaw = item.category || '';
-   const catName = typeof catRaw === 'string' ? catRaw : (catRaw as any)?.name || '';
-   const isDrink = ['coffee','tea','drink','juice','boba','smoothie'].some(k => catName.toLowerCase().includes(k));
-   ```
-3. **QR bàn tích hợp logo:** `QRCodeSVG` từ `qrcode.react`, bắt buộc `level="H"`.
-4. **Import:** không barrel `@/components/auth` — import trực tiếp file (`@/components/auth/RoleGate`).
+// ✅ Always use theme
+<View className="bg-primary">
+<View style={styles.container}> // StyleSheet with theme values
+```
 
----
-
-## 5. Critical UI Rules (đã thiết lập, không được phá)
-
-- **A. Note món multi-line bắt buộc** (`CashierClient`, `kds/page`, `KitchenTicketTemplate`, `ReceiptPrintTemplate`, `OrdersScreen` mobile): chuỗi `item.note` nối bằng `•`/`|` phải tách thành từng dòng có bullet, không hiển thị nguyên chuỗi dài. POS/KDS dùng text cam/vàng; bill in nhiệt dùng `- xxx` chữ đen.
-- **B. Nút HỦY MÓN trong POS luôn canh phải** (`justify-end`, `text-rose-400 border-rose-500/20`) — tránh bấm nhầm.
-- **C. Nút Thanh Toán QR Menu chống giật:** thêm `!isInitializing` vào điều kiện render để không chớp khi Socket `PENDING` đang đồng bộ.
-- **D. Form tích điểm đồng bộ branding:** container SĐT + nút xác nhận dùng `primaryColor`/`secondaryColor` của quán; badge hạng + badge điểm cùng 1 hàng flex.
-- **E. Bản in nhiệt:** phiếu bếp và hóa đơn chữ đen trên trắng, đủ thông tin bill + VietQR chân bill, không icon màu/viền lòe loẹt (hỏng đầu kim 80mm/58mm).
+### StyleSheet Pattern
+```typescript
+const styles = StyleSheet.create({
+  container: {
+    backgroundColor: theme.colors.background,
+    padding: theme.spacing.md,
+    borderRadius: theme.radii.lg,
+  },
+  title: {
+    color: theme.colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+});
+```
 
 ---
 
-## 6. Quy Tắc Hành Vi Của Agent
+## 6. Cart Composite Key (Critical)
 
-1. **Git Push:** TUYỆT ĐỐI KHÔNG tự ý `git push`. Chỉ commit local, chờ user xác nhận mới push.
-2. **Atomic Commits:** mỗi tính năng/fix là 1 commit riêng, Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`).
-3. **Bảo toàn mã nguồn:** không xóa tính năng/chú thích hiện có trừ khi user yêu cầu rõ.
-4. **Cổng:** Backend `5000`/`5001`, Web `3000`, Metro `8081` — không tự đổi.
-5. **Không commit** `.expo`, `node_modules`, `package-lock.json` thay đổi không cần thiết.
-6. **Code xong phải cập nhật Workflow (luật dùng chung — áp dụng mọi agent/thành viên):**
-   - Agent code/vibe xong tính năng nào → **trong cùng phiên làm việc**, trước khi báo xong, PHẢI tự cập nhật file workflow tương ứng, không đợi user nhắc:
-     - Thành viên A → `docs/A_Work_Flow.md` · B → `docs/B_Work_Flow.md` · C → `docs/C_Work_Flow.md`.
-   - Nội dung cập nhật: đổi trạng thái task/file liên quan (🟡 → 🟢 khi đạt "Định nghĩa hoàn thành", giữ 🟡 + ghi chú nếu mới xong một phần), ghi ngày hoàn thành + hash commit + file đã chạm.
-   - Task chưa có trong workflow → tự bổ sung vào đúng Giai đoạn/Phase tương ứng, không tự ý xóa task của người khác.
-   - Ví dụ: người C vibe xong QR Menu → agent cập nhật `docs/C_Work_Flow.md` (đánh dấu task QR Menu hoàn thành, file `app/table/[tableId]/page.tsx` → 🟢) rồi mới báo cáo.
+### Unique Key per Variant
+```typescript
+// src/screens/OrderScreen.tsx
+const cartItemId = `${item.id}__${JSON.stringify(selectedModifiers)}__${note || ''}`;
+
+// Examples:
+// "item1__{}"                          → Trà Đào (no modifiers)
+// "item1__{}"__"less ice"             → Trà Đào + note
+// "item1__{"Đường":"50%","Đá":"70%"}__" → Trà Đào 50% đường 70% đá
+// "item1__{"Đường":"100%","Đá":"70%"}__" → Trà Đào 100% đường 70% đá (DIFFERENT line)
+```
+
+### Why
+- Same drink + different modifiers = **separate lines** in cart, kitchen ticket, bill.
+- Modifier JSON stringified → deterministic key.
 
 ---
 
-## 7. Checklist Khi Thêm Tính Năng Mới
+## 7. Sound Alerts (`src/services/sound.ts`)
 
-- [ ] Type mới → `src/types/index.ts`; màu/radii/shadow mới → `src/theme/index.ts` (không hardcode).
-- [ ] Màn hình thao tác mobile → thêm `OperationSubView` + branch trong `OperationsScreen.tsx`.
-- [ ] State toàn cục → mở rộng `useMenuStore` hoặc store mới `src/data/*.ts`.
-- [ ] Query DB nào cũng có `tenantId` (+ `branchId` nếu cấp chi nhánh).
-- [ ] Dùng `theme.colors.*`, `lucide-react-native`, `StyleSheet.create`, Safe Area insets.
-- [ ] Test iOS notch 44pt + Android status bar — kiểm tra dock không bị Home Indicator che; `BottomNav` ẩn đúng ở sub-view (`App.tsx`).
+### Setup
+```typescript
+// assets/sounds/new_order.mp3, payment_complete.mp3 required
+soundService.playNewOrderAlert();      // order:new
+soundService.playPaymentCompleteAlert(); // payment:completed
+```
+
+### Usage
+- Auto-play via `useSocket` listeners (see Section 4).
+- User toggle: `authStore.soundEnabled` (persisted).
+
+---
+
+## 8. Safe Area Handling
+
+### Mandatory
+```typescript
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+export function MyScreen() {
+  const insets = useSafeAreaInsets();
+  const bottomPadding = insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6;
+
+  return (
+    <View className="flex-1 bg-background">
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: bottomPadding + 76 }} // + tab bar
+      >
+        {/* content */}
+      </ScrollView>
+      <BottomNav /> {/* fixed bottom */}
+    </View>
+  );
+}
+```
+
+### Rules
+- **Always** use `useSafeAreaInsets()` on top-level screens.
+- Account for: status bar (top), home indicator (bottom), tab bar (76px).
+- Test on: iPhone (notch/Dynamic Island), Android (gesture nav), iPad.
+
+---
+
+## 9. Icons (Lucide Only)
+
+```typescript
+import { 
+  UtensilsCrossed, 
+  Receipt, 
+  CheckCircle2, 
+  TrendingUp, 
+  Flame 
+} from 'lucide-react-native';
+
+// Usage
+<UtensilsCrossed size={22} color={theme.colors.primary} />
+```
+
+### Rules
+- **Only** `lucide-react-native` — no `react-native-vector-icons`, `expo-icons`, etc.
+- Import individually (tree-shaking).
+- Size: 18-24 for UI, 28-32 for feature icons.
+
+---
+
+## 10. Type Definitions (`src/types/index.ts`)
+
+### Core Types
+```typescript
+type TabType = 'home' | 'revenue' | 'order' | 'notifications' | 'settings';
+type OperationSubView = 'hub' | 'orders' | 'cashier' | 'tables' | 'sold_out' | 'inventory' | 'history' | 'item_options' | 'menu_item_form' | 'modifier_detail' | 'prep_time';
+
+interface MenuItem {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  imageUrl: string;
+  isPopular?: boolean;
+  description?: string;
+  modifierGroups?: ModifierGroup[];
+  prepTimeMinutes?: number;
+}
+
+interface CartItem {
+  cartItemId: string; // composite key
+  item: MenuItem;
+  quantity: number;
+  selectedModifiers?: Record<string, string>;
+  note?: string;
+  unitPrice?: number;
+}
+```
+
+### Rules
+- All shared types in `src/types/index.ts` — single source.
+- API response types in `src/services/api.ts` (inline or imported).
+- No duplicate interfaces across files.
+
+---
+
+## 11. Environment Variables
+
+### `.env`
+```env
+EXPO_PUBLIC_API_URL=http://192.168.1.x:5000/api
+```
+
+### Platform-Specific Resolution (api.ts)
+| Platform | Resolved URL |
+|----------|--------------|
+| Android Emulator | `http://10.0.2.2:5001/api` |
+| iOS Simulator | `http://localhost:5001/api` |
+| Physical Device (LAN) | `http://192.168.x.x:5000/api` |
+| Expo Web | `http://localhost:5001/api` |
+
+### Multi-Device Setup
+1. Windows backend: `ipconfig` → IPv4 (e.g., `192.168.1.50`)
+2. Mac `.env`: `EXPO_PUBLIC_API_URL=http://192.168.1.50:5000/api`
+3. Run Metro: `npx expo start --lan`
+4. Scan QR with Expo Go (phone) or press `i` (iOS Simulator)
+
+---
+
+## 12. Common Patterns
+
+### Data Fetching with Loading
+```typescript
+const [loading, setLoading] = useState(false);
+const { items, fetchMenuItems } = useMenuStore();
+
+const loadData = useCallback(async () => {
+  setLoading(true);
+  await fetchMenuItems(branchId);
+  setLoading(false);
+}, [fetchMenuItems, branchId]);
+
+useEffect(() => { loadData(); }, [loadData]);
+
+// Pull-to-refresh
+<ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={loadData} />}>
+```
+
+### Optimistic Updates
+```typescript
+// Toggle sold out
+const toggleSoldOut = async (itemId: string, isSoldOut: boolean) => {
+  // 1. Optimistic UI
+  updateItem(itemId, { isSoldOut });
+  // 2. API call
+  try { await api.toggleSoldOut(itemId, isSoldOut, branchId); }
+  catch { updateItem(itemId, { isSoldOut: !isSoldOut }); } // rollback
+};
+```
+
+### Modal/Bottom Sheet
+- Use `react-native-reanimated` + `react-native-gesture-handler` for performant animations.
+- `ItemOptionsScreen`, `ModifierDetailScreen`, `PrepTimeDetailScreen` pushed via `operationSubView`.
+
+---
+
+## 13. Quality & Build
+
+```bash
+npm start            # Metro (port 8081)
+npm run ios          # iOS Simulator
+npm run android      # Android Emulator
+npm run web          # Expo Web
+npx expo start -c    # Clear Metro cache
+```
+
+### Pre-commit
+- TypeScript strict mode: `tsconfig.json` → `"strict": true`
+- No `any` — use types from `src/types/index.ts`
+- ESLint: `npm run lint` (if configured)
+- Test on both iOS & Android before push
+
+---
+
+## 14. Forbidden Patterns
+
+| ❌ Forbidden | ✅ Use Instead |
+|-------------|----------------|
+| `react-navigation` / `expo-router` | Custom `activeTab` + `operationSubView` |
+| `AsyncStorage` for tokens | `expo-secure-store` via `authStore` |
+| Hardcoded colors (`#FF5733`) | `theme.colors.*` from `@/theme` |
+| `localStorage` (web) | `expo-secure-store` (native) + try/catch |
+| Separate `StyleSheet` per file without theme | Import `theme` from `@/theme` |
+| New Zustand store | Existing `menuStore`, `historyStore`, `authStore` |
+| Direct `fetch()` / `axios` | `api` from `src/services/api.ts` |
+| `console.log` in production | Remove or use `__DEV__` guard |
+
+---
+
+## 15. Debugging Checklist
+
+| Symptom | Check |
+|---------|-------|
+| API `Network Error` | `.env` IP correct? Backend running? Port 5000/5001? |
+| Metro not reloading | `npx expo start -c` (clear cache) |
+| iOS Simulator won't open | `xcode-select --install`, Xcode → Settings → Locations |
+| Android build fail | `android/local.properties` → `sdk.dir=/path/to/sdk` |
+| Socket not connecting | `EXPO_PUBLIC_API_URL` port matches backend? Backend log `⚡ [useSocket] Connected` |
+| Theme not applying | Import `theme` from `@/theme`, check `tailwind.config.js` content paths |
+| Sound not playing | Files in `assets/sounds/`, `soundEnabled` in authStore |
+| Safe area wrong | `useSafeAreaInsets()` used? Test on device with notch |
+
+---
+
+## 16. Platform-Specific Notes
+
+### Android
+- Emulator: `10.0.2.2` maps to host `localhost` (handled in `api.ts:5`).
+- Cleartext HTTP allowed for dev (debug manifest auto-configured by Expo).
+
+### iOS
+- Simulator: `localhost` works directly.
+- Physical device: Must use LAN IP, same WiFi as Mac.
+- `expo-secure-store` uses Keychain (works on device + simulator).
+
+### Web (Expo Web)
+- `expo-secure-store` no-op (try/catch in `authStore.ts`).
+- Socket.IO works via polling fallback.

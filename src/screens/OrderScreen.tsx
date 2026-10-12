@@ -317,7 +317,9 @@ export const OrderScreen: React.FC<OrderScreenProps> = ({
                 <Image source={{ uri: item.imageUrl }} className="w-full h-[105px] rounded-[12px] mb-2" resizeMode="cover" />
 
                 <Text className="text-[13.5px] font-bold text-textMain min-h-[36px]" numberOfLines={2}>{item.name}</Text>
-                <Text className="text-[11px] text-textMuted mt-0.5 mb-1.5">{item.category}</Text>
+                <Text className="text-[11px] text-textMuted mt-0.5 mb-1.5">
+                  {typeof item.category === 'object' && item.category !== null ? (item.category as any).name : item.category}
+                </Text>
 
                 <View className="flex-row justify-between items-center mt-1">
                   <Text className="text-[13.5px] font-extrabold text-primaryDark">{formatCurrency(item.price)}</Text>

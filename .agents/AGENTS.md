@@ -1,61 +1,181 @@
-# HiAI-MenuGo — Agent Entry Point (AGENTS)
+# HiAI-MenuGo Mobile — Agent Entry Point
 
-> **File điều phối duy nhất cho AI Agent.** Đọc file này trước, sau đó đi tới file chuyên trách tương ứng. Không nhồi mọi chi tiết vào đây — chi tiết nằm ở 4 file còn lại.
+> **Repo này là `mobile/`** — Expo ~57 + React Native 0.86.3 + React 19.  
+> App di động vận hành nhà hàng dành cho nhân viên (iOS & Android): POS Gọi món, Quản lý đơn hàng live, Thu ngân, Kho, Lịch sử.
 
 ---
 
-## 1. Bản Đồ 5 Files (đọc theo thứ tự)
+## 1. Bản Đồ Files (đọc theo thứ tự)
 
-| # | File | Nội dung | Khi nào đọc |
+| # | File | Nội dung chính | Khi nào đọc |
 |---|---|---|---|
-| 1 | [BUSINESS.md](./BUSINESS.md) | Nghiệp vụ F&B: Multi-tenant, RBAC nghiệp vụ, lifecycle QR→KDS→POS→thanh toán, Menu/Modifiers, kho BOM, Loyalty/Voucher, Z-Report, Branding | Trước khi thiết kế tính năng, kiểm tra logic đúng nghiệp vụ |
-| 2 | [TECHS.md](./TECHS.md) | Stack chốt: Next.js 16, Express 5, React Native/Expo 57, Supabase/PostgreSQL, Prisma 6.4, **JWT thuần**, Socket.IO, ports, cấu trúc repo | Trước khi chọn lib, tạo project, viết API/schema/auth |
-| 3 | [RULES.md](./RULES.md) | Luật cấm: tenant isolation, ApiResponse/Zod, cart composite key, cấm React Navigation, critical UI rules, git policy, checklist | Trước khi viết/sửa bất kỳ code nào |
-| 4 | [SKILLS.md](./SKILLS.md) | Design System: màu F&B, typography, geometry 4 cấp, thumb zone, journey 5 chặng, component mẫu, theme tokens | Trước khi làm UI/component mới |
-| 5 | `AGENTS.md` (file này) | Index + trạng thái repo + feature map + workflow | Luôn đọc đầu tiên |
+| 1 | `AGENTS.md` (file này) | Index repo · cấu trúc thư mục · navigation map · workflow mobile | Luôn đọc đầu tiên |
+| 2 | [BUSINESS.md](./BUSINESS.md) | Nghiệp vụ F&B: lifecycle gọi món, Quản lý đơn hàng live, POS, kho BOM, Loyalty | Trước khi xây tính năng liên quan nghiệp vụ |
+| 3 | [TECHS.md](./TECHS.md) | Stack: Expo 57, RN 0.86, Zustand 5, Socket.IO Client, Axios, expo-secure-store | Trước khi chọn thư viện, viết hook/service mới |
+| 4 | [RULES.md](./RULES.md) | Luật bắt buộc: **cấm React Navigation/Expo Router**, cart composite key, theme tokens, Safe Area | Trước khi viết/sửa bất kỳ code nào |
+| 5 | [SKILLS.md](./SKILLS.md) | Design System: theme tokens, StyleSheet patterns, NativeWind, component mẫu, thumb zone | Trước khi làm UI/component mới |
+| 6 | [SYSTEM.md](./SYSTEM.md) | System: auth flow, Socket.IO mobile, IP LAN config, navigation hub pattern | Khi làm auth, realtime hoặc navigation |
 
 ---
 
-## 2. Trạng Thái Repo Thực Tế (29/09/2026)
+## 2. Thông Tin Repo Này
 
-- Root hiện có: `mobile/` ✅ · `frontend/` ✅ · `backend/` ✅ · `docs/` · `.agents/` · `README.md`.
-- Dự án quản lý trên **3 repositories độc lập**:
-  - `backend.git` (A + B + C code chung): Express 5 + TypeScript 5.8 + Socket.IO + Prisma 6.
-  - `mobile.git` (A: iOS & Foundation + B: Android & Operations): Expo ~57 + RN 0.86.
-  - `frontend.git` (C: Web Platform): Next.js 16 (App Router) + React 19 + TailwindCSS.
-- **Quy chuẩn nhánh:** Mỗi repo có `main` (production), `dev` (tích hợp), thành viên tạo nhánh `feat/...` và mở Pull Request vào `dev`.
-- **Nguyên tắc dùng chung API:** Cả Mobile và Web đều kết nối vào **cùng 1 Backend API duy nhất** (port 5000/5001), dùng chung Socket.IO events, data schemas, JWT auth và các endpoint nghiệp vụ.
-- Cổng: Backend `5000`/`5001` · Web `3000` · Metro `8081` — không tự đổi.
-
+- **Repo:** `mobile.git` — Thành viên A (iOS/Foundation) + B (Android/Operations)
+- **Runtime:** Expo ~57.0.23 · React Native 0.86.3 · React 19.2.3 · TypeScript ~6.0.3
+- **Metro port:** `8081` — **không tự đổi**
+- **Nhánh hiện tại:** `dev` → PR vào `dev`, merge `main` khi release
+- **API backend:** `EXPO_PUBLIC_API_URL` trong `.env` (thay `localhost` bằng IP LAN khi test thiết bị thật)
+- **Navigation:** Custom Hub Pattern — **cấm tuyệt đối React Navigation & Expo Router**
+- **Token storage:** `expo-secure-store` — **không AsyncStorage thô**
 
 ---
 
-## 3. Feature Map Gọn
+## 3. Cấu Trúc Thư Mục Mobile
 
 ```
-HiAI-MenuGo/
-├── .agents/
-│   ├── AGENTS.md    # Index (file này)
-│   ├── BUSINESS.md  # Nghiệp vụ F&B & vận hành
-│   ├── TECHS.md     # Stack: Next.js, Express, RN, Supabase, Prisma, PG, JWT thuần
-│   ├── RULES.md     # Luật bắt buộc + checklist
-│   └── SKILLS.md    # Design System & component mẫu
-├── mobile/          # Expo 57 + RN 0.86 (đã có & verified)
-│   ├── App.tsx      # Root shell: SafeArea + Custom Tab routing + Cart state
-│   ├── index.ts     # Expo entry
-│   └── src/         # types · theme · data (mockData, menuStore) · components · screens
-├── frontend/        # Next.js 16 App Router (khung đã khởi tạo ✅)
-└── backend/         # Express 5 + TypeScript + Socket.IO (khung đã khởi tạo ✅)
+mobile/
+├── App.tsx                              # Root shell: SafeAreaProvider + Tab state + Cart state
+├── index.ts                             # Expo entry (registerRootComponent)
+├── app.json                             # Config: portrait, light theme, bundle ID
+├── src/
+│   ├── types/
+│   │   └── index.ts                     # TabType, OperationSubView, MenuItem, CartItem,
+│   │                                    # LiveOrder, OrderItem, Ingredient, ModifierGroup...
+│   ├── theme/
+│   │   └── index.ts                     # colors, radii, shadows, spacing (nguồn duy nhất)
+│   ├── data/
+│   │   ├── mockData.ts                  # Dữ liệu mẫu (chỉ dùng khi dev offline)
+│   │   └── menuStore.ts                 # Zustand: useMenuStore (menu items) + historyStore
+│   ├── services/
+│   │   └── api.ts                       # Axios instance: baseURL, token interceptor, refresh 401
+│   ├── hooks/                           # Custom hooks dùng chung
+│   ├── components/
+│   │   ├── BottomNav.tsx                # Tab bar dưới cùng (5 tabs: Home/Order/Ops/Revenue/Settings)
+│   │   └── ...                          # Shared components (Modal, Badge, Spinner...)
+│   └── screens/
+│       ├── LoginScreen.tsx              # Đăng nhập → lưu token vào expo-secure-store
+│       ├── HomeScreen.tsx               # Tổng quan ca: doanh thu nhanh, bàn đang phục vụ
+│       ├── OrderScreen.tsx              # POS: menu + giỏ hàng + gửi đơn
+│       ├── OperationsScreen.tsx         # Hub điều phối: render sub-view theo operationSubView
+│       ├── RevenueScreen.tsx            # Doanh thu & phân tích (chart, stat cards)
+│       ├── NotificationScreen.tsx       # Thông báo hệ thống
+│       ├── SettingsScreen.tsx           # Cài đặt người dùng, thông tin chi nhánh, logout
+│       └── operations/                  # 10 sub-views trong OperationsScreen
+│           ├── OrdersScreen.tsx         # Quản lý đơn hàng live — danh sách đơn, đổi trạng thái
+│           ├── CashierScreen.tsx        # Thu ngân: xem đơn bàn, áp voucher, xác nhận TT
+│           ├── TablesScreen.tsx         # Sơ đồ bàn: occupied/empty/reserved
+│           ├── SoldOutScreen.tsx        # Báo hết món: toggle sold out từng món
+│           ├── InventoryScreen.tsx      # Kiểm kê kho nguyên liệu, điều chỉnh số lượng
+│           ├── HistoryScreen.tsx        # Lịch sử đơn hàng đã đóng
+│           ├── ItemOptionsScreen.tsx    # Chọn modifier/tùy chọn cho một món
+│           ├── MenuItemFormScreen.tsx   # Form tạo/sửa món ăn
+│           ├── ModifierDetailScreen.tsx # Xem/sửa modifier group và options
+│           └── PrepTimeDetailScreen.tsx # Cài đặt thời gian chế biến ước tính
+├── assets/                              # Ảnh, fonts, icons tĩnh
+├── .env / .env.example
+├── babel.config.js
+├── metro.config.js
+├── tailwind.config.js                   # NativeWind config
+├── global.css                           # NativeWind base styles
+└── tsconfig.json
 ```
 
 ---
 
-## 4. Workflow Bắt Buộc Của Agent
+## 4. Navigation Architecture (Hub Pattern)
 
-1. Đọc `AGENTS.md` (file này) → xác định task thuộc file nào → đọc file đó (+ file liên quan nếu cần).
-2. Mọi Prisma query phải có `tenantId` (RULES §1). Mọi response qua `ApiResponse`, body qua Zod (RULES §2).
-3. Auth chỉ JWT thuần (`jsonwebtoken`, access 15p + refresh 7d HttpOnly, rotation + reuse detection) — cấm Supabase Auth/NextAuth/Clerk (TECHS §6).
-4. Mobile: cấm React Navigation/Expo Router; cart dùng `cartItemId` composite; màu từ `theme` (RULES §3).
-5. **TUYỆT ĐỐI KHÔNG `git push`** khi chưa được user xác nhận. Commit atomic theo Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`).
-6. Sửa `schema.prisma` → `npx prisma format` + `npx prisma generate` trước khi test/build.
-7. Code xong tính năng nào → trong cùng phiên phải tự cập nhật `docs/A|B|C_Work_Flow.md` tương ứng (đổi trạng thái task, ghi ngày + commit) — chi tiết RULES §6 rule 6.
+**Không có React Navigation hay Expo Router.** Điều hướng hoàn toàn qua `useState` trong `App.tsx`:
+
+```
+App.tsx  (activeTab state)
+ ├── 'home'        → <HomeScreen />
+ ├── 'order'       → <OrderScreen />   (POS + cart)
+ ├── 'operations'  → <OperationsScreen operationSubView={...} />
+ │                      ├── 'default'          → Hub menu chọn chức năng
+ │                      ├── 'orders'           → <OrdersScreen /> (Quản lý đơn live)
+ │                      ├── 'cashier'          → <CashierScreen />
+ │                      ├── 'tables'           → <TablesScreen />
+ │                      ├── 'sold-out'         → <SoldOutScreen />
+ │                      ├── 'inventory'        → <InventoryScreen />
+ │                      ├── 'history'          → <HistoryScreen />
+ │                      ├── 'item-options'     → <ItemOptionsScreen />
+ │                      ├── 'menu-item-form'   → <MenuItemFormScreen />
+ │                      ├── 'modifier-detail'  → <ModifierDetailScreen />
+ │                      └── 'prep-time'        → <PrepTimeDetailScreen />
+ ├── 'revenue'     → <RevenueScreen />
+ └── 'settings'    → <SettingsScreen />
+```
+
+**Để điều hướng:** Gọi prop callback `onNavigate(subView)` truyền từ `App.tsx` xuống — không dùng hook navigation nào.
+
+---
+
+## 5. Cart Item Composite Key (bắt buộc)
+
+```typescript
+// Định danh duy nhất cho mỗi dòng trong giỏ hàng:
+const cartItemId = `${item.id}__${JSON.stringify(selectedModifiers)}__${note}`;
+
+// Ví dụ:
+// "drink_01__[{"size":"L"},{"sugar":"50%"}]__không đá"  ← Trà Đào L, 50% đường
+// "drink_01__[{"size":"M"},{"sugar":"100%"}]__"         ← Trà Đào M, 100% đường (khác dòng!)
+```
+
+> Quy tắc này đảm bảo 2 ly Trà Đào cùng tên nhưng khác tùy chọn = 2 dòng riêng trên phiếu bếp.
+
+---
+
+## 6. Theme Tokens (bắt buộc)
+
+```typescript
+import { theme } from '@/theme'; // src/theme/index.ts
+
+// Luôn dùng:
+theme.colors.primary       // màu nhấn chính
+theme.colors.background    // nền màn hình
+theme.colors.surface       // nền card/panel
+theme.colors.text          // màu chữ chính
+theme.radii.md             // border radius
+theme.shadows.card         // box shadow card
+
+// ❌ TUYỆT ĐỐI KHÔNG hardcode hex:
+// backgroundColor: '#FF5733'  ← SAI
+// backgroundColor: theme.colors.primary ← ĐÚNG
+```
+
+---
+
+## 7. Safe Area (bắt buộc)
+
+```typescript
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const insets = useSafeAreaInsets();
+
+// Luôn áp dụng:
+paddingTop: insets.top       // tránh notch/status bar
+paddingBottom: insets.bottom // tránh home indicator (iOS)
+```
+
+---
+
+## 8. Phân Chia Công Việc (A & B)
+
+| Thành viên | Platform | Màn hình phụ trách |
+|---|---|---|
+| **A (iOS)** | iPhone / iOS Simulator | `App.tsx` shell, `HomeScreen`, `OrderScreen`, `RevenueScreen`, `NotificationScreen`, `LoginScreen` |
+| **B (Android)** | Android / Emulator | `OperationsScreen` hub + tất cả 10 sub-views trong `operations/` |
+
+---
+
+## 9. Workflow Bắt Buộc Của Agent
+
+1. Đọc file này → xác định task thuộc screen/component nào → đọc SKILLS.md nếu làm UI.
+2. **Cấm tuyệt đối** import bất cứ thứ gì từ `@react-navigation/*` hay `expo-router`.
+3. **Mọi màu** phải từ `theme.colors.*` — không hardcode hex.
+4. **Safe Area** phải có `useSafeAreaInsets()` ở mọi screen root.
+5. **Cart composite key** bắt buộc theo format `${id}__${JSON.stringify(modifiers)}__${note}`.
+6. **Token** lưu và đọc từ `expo-secure-store` — không `AsyncStorage`.
+7. Khi test thiết bị thật: đổi `.env` thành IP LAN thay vì `localhost`.
+8. **TUYỆT ĐỐI KHÔNG `git push`** khi chưa có xác nhận của user.
+9. Commit theo Conventional Commits: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`.

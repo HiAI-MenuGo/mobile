@@ -231,7 +231,7 @@ export const SoldOutScreen: React.FC<SoldOutScreenProps> = ({
                     </View>
 
                     <Text className="text-[11.5px] text-textSecondary mt-0.5">
-                      {item.category} • <Text className="font-bold text-emerald-600">{formatCurrency(item.price)}</Text>
+                      {typeof item.category === 'object' && item.category !== null ? (item.category as any).name : item.category} • <Text className="font-bold text-emerald-600">{formatCurrency(item.price)}</Text>
                     </Text>
                   </View>
                 </View>

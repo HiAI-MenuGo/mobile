@@ -83,7 +83,7 @@ export const LoginScreen: React.FC = () => {
                   onBlur={() => setEmailFocused(false)}
                   autoCapitalize="none"
                   keyboardType="email-address"
-                  placeholder="nhap@email.com"
+                  placeholder="email"
                   placeholderTextColor={theme.colors.textMuted}
                   style={styles.textInput}
                 />
@@ -106,7 +106,7 @@ export const LoginScreen: React.FC = () => {
                   onFocus={() => setPasswordFocused(true)}
                   onBlur={() => setPasswordFocused(false)}
                   secureTextEntry={!showPassword}
-                  placeholder="••••••"
+                  placeholder="password"
                   placeholderTextColor={theme.colors.textMuted}
                   style={styles.textInput}
                 />

@@ -138,7 +138,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
               <UtensilsCrossed size={18} color="#00A389" />
             </View>
             <Text className="text-[15px] font-extrabold text-textMain">{summary.pendingOrders} đơn</Text>
-            <Text className="text-[10.5px] text-textSecondary mt-0.5 text-center">Đang chờ & KDS</Text>
+            <Text className="text-[10.5px] text-textSecondary mt-0.5 text-center">Đơn chờ xử lý</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -232,7 +232,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
                     <Text className="text-[14px] font-bold text-textMain" numberOfLines={1}>
                       {dish.name}
                     </Text>
-                    <Text className="text-[11px] text-textMuted mt-0.5">{dish.category}</Text>
+                    <Text className="text-[11px] text-textMuted mt-0.5">
+                      {typeof dish.category === 'object' && dish.category !== null ? (dish.category as any).name : dish.category}
+                    </Text>
                     <Text className="text-[13px] font-extrabold text-primaryDark mt-0.5">
                       {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(dish.price)}
                     </Text>

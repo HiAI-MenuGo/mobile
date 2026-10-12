@@ -1,171 +1,166 @@
-# HiAI-MenuGo — Business Domain & F&B Operations Manual
+# HiAI-MenuGo Mobile — Nghiệp Vụ F&B (BUSINESS)
 
-> Tài liệu quy chuẩn toàn bộ kiến thức nghiệp vụ (Domain Knowledge), mô hình vận hành và chu trình kinh doanh F&B của hệ sinh thái **HiAI-MenuGo**. Mọi lập trình viên và AI Agent cần nắm vững tài liệu này để phát triển tính năng đúng logic nghiệp vụ.
+> **Góc nhìn Mobile (React Native):** Tài liệu này mô tả nghiệp vụ F&B dưới dạng **screen behavior, state management và API calls** trong app di động dành cho nhân viên vận hành nhà hàng.
 >
-> - 🏗️ **Kiến trúc kỹ thuật & Entry point:** Xem [AGENTS.md](./AGENTS.md)
-> - ⛔ **Luật bắt buộc (RBAC, API, Mobile, Frontend):** Xem [RULES.md](./RULES.md)
-> - 🎨 **Design System & UI/UX:** Xem [SKILLS.md](./SKILLS.md)
+> - 🏗️ Entry point & cấu trúc repo: [AGENTS.md](./AGENTS.md)
+> - ⛔ Luật bắt buộc khi viết code: [RULES.md](./RULES.md)
+> - 🎨 Design System & UI: [SKILLS.md](./SKILLS.md)
 
 ---
 
-## 1. Mô Hình Kinh Doanh Multi-Tenant SaaS F&B
+## 1. Người Dùng Mobile & Các Màn Hình Thực Tế
 
-HiAI-MenuGo là nền tảng SaaS phục vụ ngành F&B (Nhà hàng, Quán cafe, Quán ăn) theo mô hình **Đa khách thuê (Multi-Tenant)** với cấu trúc phân cấp chặt chẽ:
+App mobile phục vụ **nhân viên vận hành nội bộ** (Thu ngân, Phục vụ, Quản lý) — khách hàng gọi món qua QR Menu trên trình duyệt:
 
-```
-Platform (SaaS Operator)
- └── Tenant (Chủ thương hiệu / Doanh nghiệp F&B)
-      ├── TenantBranding (Logo, màu sắc nhận diện, banner)
-      ├── MembershipTier (Hạng thành viên: Đồng, Bạc, Vàng, Kim Cương)
-      ├── Voucher / Promotion (Chương trình khuyến mãi chung)
-      └── Branch (Chi nhánh cửa hàng độc lập)
-           ├── Table (Sơ đồ bàn theo khu vực)
-           ├── Staff / TenantUser (Quản lý, Bếp, Thu ngân, Phục vụ)
-           ├── Inventory / Ingredient (Kho nguyên liệu riêng của chi nhánh)
-           └── OrderSession / Order (Phiên gọi món & đơn hàng)
-```
+### Các Tab Chính (BottomNav):
+| Tab / Screen | Mục đích & Nghiệp vụ |
+|---|---|
+| `HomeScreen` | Trang chủ tổng quan ca: doanh thu tạm tính, số bàn đang phục vụ, lối tắt thao tác nhanh |
+| `RevenueScreen` | Báo cáo doanh thu chi tiết theo ngày/tuần/tháng, phương thức thanh toán, top món bán chạy |
+| `OperationsScreen` | **Trung tâm thao tác (Hub)**: Chứa toàn bộ các tính năng vận hành của quán |
+| `NotificationScreen` | Thông báo hệ thống: gọi nhân viên từ bàn, đơn mới, cập nhật thanh toán |
+| `SettingsScreen` | Cài đặt ca làm, cấu hình máy in bill, IP máy chủ LAN, thông tin tài khoản |
 
-### Nguyên tắc cô lập dữ liệu (Tenant Isolation)
-- Dữ liệu giữa các Tenant **tuyệt đối không được phép nhìn thấy nhau**.
-- Một Tenant có thể sở hữu 1 hoặc nhiều Chi nhánh (`Branch`). Chi nhánh dùng chung Menu hoặc có menu riêng, nhưng kho nguyên liệu và doanh thu được hạch toán độc lập theo từng chi nhánh.
-- Khách hàng vãng lai khi quét QR chỉ thấy thông tin của đúng chi nhánh và bàn mình đang ngồi.
-
----
-
-## 2. Ma Trận Phân Quyền RBAC (Role-Based Access Control)
-
-Hệ thống phân cấp 5 nhóm quyền hạn tương ứng với các vị trí trong vận hành:
-
-| Vai trò (Role) | Đối tượng sử dụng | Phạm vi dữ liệu | Quyền hạn nghiệp vụ |
-|---|---|---|---|
-| `PLATFORM_ADMIN` | Đội ngũ vận hành SaaS | Toàn hệ thống nền tảng | Quản lý danh sách Tenant, cấu hình các gói cước (Free/Pro/Enterprise), theo dõi subscription & hóa đơn. **TUYỆT ĐỐI KHÔNG** xem doanh thu, đơn hàng, dữ liệu nội bộ của bất kỳ Tenant nào. |
-| `ADMIN` | Chủ thương hiệu / Giám đốc F&B | Toàn bộ chi nhánh thuộc Tenant | Toàn quyền cấu hình: Thực đơn, công thức định lượng (BOM), cài đặt chi nhánh, nhân sự, tài khoản ngân hàng nhận tiền, chương trình khuyến mãi, báo cáo tài chính tổng. |
-| `MANAGER` | Quản lý cửa hàng / Cửa hàng trưởng | Chi nhánh được phân công (`req.user.branchId`) | Quản lý nhân viên chi nhánh, sơ đồ bàn, nhập/xuất/kiểm kê kho, duyệt hóa đơn, xuất báo cáo ca làm việc (Z-Report). |
-| `KITCHEN` | Đầu bếp / Nhân viên pha chế | Màn hình KDS chi nhánh | Xem danh sách món cần chế biến theo thứ tự thời gian, chuyển trạng thái món (Pending ➔ Preparing ➔ Ready), bật/tắt báo hết món (Sold Out) tức thì. |
-| `CASHIER` | Thu ngân / Nhân viên phục vụ | POS / Quầy thanh toán chi nhánh | Tạo đơn tại quầy, thao tác POS, áp dụng voucher/tích điểm thành viên, xác nhận thanh toán tiền mặt / VietQR, in bill, hủy món và hoàn kho đơn hủy. |
-
-> Quy tắc code tương ứng (tenantId bắt buộc trong mọi Prisma query, middleware `requireRole`): xem [RULES.md](./RULES.md#1-multi-tenant-rbac-critical--quy-tắc-bảo-mật-số-1).
+### Các Phân Hệ Trong Trung Tâm Thao Tác (`OperationsScreen` Sub-views):
+| Sub-view / Screen | File component | Nghiệp vụ chi tiết |
+|---|---|---|
+| `order` | `OrderScreen.tsx` | **Tạo Order / Gọi Món Nhanh (POS Mobile)**: Chọn bàn, chọn món, tuỳ chọn size/đường/đá/topping, gửi đơn vào bàn |
+| `orders` | `OrdersScreen.tsx` | **Quản Lý Đơn Hàng Live**: Theo dõi đơn đang mở (Chờ xử lý `PENDING`, Đang xử lý `CONFIRMED`, Hoàn tất `DONE`), nút Tiếp nhận, Hoàn tất và Hủy đơn |
+| `tables` | `TablesScreen.tsx` | **Sơ Đồ Bàn Ăn**: Xem trạng thái bàn (Trống, Đang dùng, Chờ dọn), mở bàn, chuyển bàn, gộp bàn |
+| `cashier` | `CashierScreen.tsx` | **Quản Lý Thanh Toán**: Xem đơn chưa thanh toán theo bàn, áp mã giảm giá/thành viên, thanh toán Tiền mặt hoặc tạo mã VietQR động |
+| `sold_out` | `SoldOutScreen.tsx` | **Quản Lý Thực Đơn / Báo Hết Món**: Bật/tắt trạng thái hết món (Sold-Out) realtime cho toàn hệ thống |
+| `inventory` | `InventoryScreen.tsx` | **Quản Lý Nguyên Liệu**: Kiểm kê nguyên liệu, xem cảnh báo sắp hết kho, điều chỉnh số lượng tồn |
+| `history` | `HistoryScreen.tsx` | **Lịch Sử Đơn Hàng**: Tra cứu các đơn đã thanh toán/đã đóng, xem chi tiết hóa đơn, hỗ trợ sao chép vào giỏ để sửa đơn |
 
 ---
 
-## 3. Chu Trình Vận Hành Khép Kín (Full F&B Lifecycle)
+## 2. Auth Flow — Mobile Specifics
 
-```
-[Khách quét QR tại bàn] ─── (1. Đặt món) ───► [Order Session khởi tạo]
-                                                         │
-         ┌───────────────────────────────────────────────┴───────────────────────────────┐
-         ▼ (2. Báo chế biến realtime)                                                    ▼ (3. Thu ngân thấy đơn)
-[Màn hình Bếp KDS]                                                              [Màn hình POS Thu ngân]
-   │                                                                               │
-   ├─► PENDING: Đơn mới chờ xác nhận                                               ├─► Áp dụng mã Voucher
-   ├─► PREPARING: Bếp bấm nấu (bắt đầu tính giờ)                                   ├─► Quét SĐT tích điểm Loyalty
-   └─► READY/DONE: Món hoàn thành, gọi phục vụ bưng ra bàn                        └─► Chọn phương thức thanh toán
-                                                                                           │
-                                                                                           ▼ (4. Thanh toán)
-                                                                                [Hóa đơn hoàn tất]
-                                                                                           │
-         ┌─────────────────────────────────────────────────────────────────────────────────┴───┐
-         ▼                                                 ▼                                   ▼
- [Tự động trừ kho theo BOM]                      [Cộng điểm khách hàng]                 [In hóa đơn nhiệt]
+```typescript
+// LoginScreen.tsx:
+const response = await api.login(email, password);
+// Lưu token an toàn vào SecureStore (expo-secure-store):
+await SecureStore.setItemAsync('accessToken', response.token);
+await SecureStore.setItemAsync('refreshToken', response.refreshToken);
+
+// Tự động kiểm tra phiên khi mở app (src/data/authStore.ts):
+loadFromStorage() → đọc SecureStore
+→ có token: set isAuthenticated = true → vào MainApp
+→ không có token: điều hướng sang LoginScreen
+
+// Interceptor (src/services/api.ts):
+// - Gắn header 'Authorization: Bearer <token>' và 'x-branch-id: <branchId>'
+// - Bắt 401: Xóa SecureStore, đưa về LoginScreen
 ```
 
-### Chi tiết các bước:
-1. **Khách hàng gọi món (QR Menu):** Khách dùng điện thoại quét mã QR dán trên mặt bàn. Hệ thống định danh `tenantId`, `branchId`, `tableId`. Khách chọn món, chọn tùy chọn (size, đường, đá, topping), ghi chú và bấm Gửi đơn.
-2. **Bếp tiếp nhận (KDS):** Đơn xuất hiện ngay lập tức trên màn hình bếp qua WebSocket (Socket.IO). Âm thanh chuông báo kích hoạt. Bếp chuyển trạng thái từng món: `PENDING` ➔ `PREPARING` ➔ `READY`.
-3. **Phục vụ & Thu ngân:** Thu ngân kiểm tra bàn, có thể gọi thêm món từ POS Web hoặc Mobile POS. Khách yêu cầu thanh toán: thu ngân nhập SĐT tích điểm, áp dụng voucher giảm giá (nếu có).
-4. **Xác nhận thanh toán:**
-   - **Tiền mặt:** Thu ngân nhận tiền, hệ thống tính tiền thối, bấm xác nhận hoàn tất.
-   - **Chuyển khoản (VietQR):** Hệ thống sinh mã QR động (chứa số tiền chính xác và mã thanh toán duy nhất). Khách quét app ngân hàng chuyển tiền. Hệ sinh thái SePay Webhook tự động bắt giao dịch và đóng bàn trong 1-2 giây.
-5. **Hậu mãi & Quản trị kho:**
-   - Đơn thành công tự động trừ số lượng nguyên liệu trong kho theo định lượng (BOM).
-   - Khách được tích điểm tương ứng với giá trị hóa đơn.
-   - Bàn chuyển sang trạng thái trống để đón lượt khách tiếp theo.
+---
+
+## 3. Tạo Order / Gọi Món Nhanh (POS) — `OrderScreen`
+
+```
+Chọn bàn ăn → Load danh mục & món (useMenuStore)
+             → Bấm món → Mở modal ItemOptionsScreen (chọn Topping, Size, Đường, Đá, Ghi chú)
+             → Thêm vào giỏ hàng với composite key
+             → Xem giỏ hàng → Bấm "Gửi Bếp / Tạo Đơn"
+             → POST /api/sessions/:tableId/order
+             → Socket emit 'order:new' → Toàn hệ thống nhận đơn mới
+```
+
+### Cart State trong `App.tsx`:
+```typescript
+// Quản lý giỏ hàng tập trung, truyền qua props xuống các sub-view:
+const [cart, setCart] = useState<CartItem[]>([]);
+
+// Khóa định danh giỏ hàng tổng hợp (Composite Key):
+const cartItemId = `${item.id}__${JSON.stringify(selectedModifiers)}__${note}`;
+```
+
+### Chọn Tuỳ Chọn Món (`ItemOptionsScreen.tsx`):
+- **Đồ uống (DRINK)**: Bắt buộc chọn nhóm kích cỡ (Size), mức đường, mức đá; tuỳ chọn topping tính thêm tiền `extraPrice`.
+- **Đồ ăn (FOOD)**: Tuỳ chọn ghi chú chế biến, gia vị kèm theo.
+- Nút thêm chỉ kích hoạt khi đã chọn đủ các nhóm tuỳ chọn bắt buộc (`required === true`).
 
 ---
 
-## 4. Nghiệp Vụ Thực Đơn & Tùy Chọn Món (Menu & Modifiers)
+## 4. Quản Lý Đơn Hàng Live — `OrdersScreen`
 
-Thực đơn trong F&B được phân biệt thành hai trường phái chính:
+Đây là màn hình theo dõi và điều phối toàn bộ các đơn hàng đang hoạt động trong ca của nhân viên phục vụ / thu ngân:
 
-### A. Phân loại Đồ ăn (Food) vs Đồ uống (Drink)
-- **Đồ uống (Drink):** Cà phê, trà trái cây, trà sữa, sinh tố, nước ngọt...
-  - Bắt buộc hỗ trợ nhóm Modifier: **Size** (M / L), **Mức đường** (100% / 70% / 50% / 30% / 0%), **Mức đá** (100% / 70% / 50% / Không đá), và danh sách **Topping** có tính phụ thu (Trân châu trắng, thạch dừa, kem cheese...).
-- **Đồ ăn (Food):** Cơm, mì, bánh ngọt, snack...
-  - Không có mức đường/đá. Tùy chọn chủ yếu là gia vị đi kèm hoặc ghi chú đặc thù (Không hành, ít cay, ăn kèm sốt...).
+```
+┌────────────────────────────────────────────────────────────┐
+│ [ Chờ xử lý (PENDING) ] [ Đang xử lý (CONFIRMED) ] [ Hoàn tất (DONE) ] │
+├────────────────────────────────────────────────────────────┤
+│ Card Đơn: Bàn 04 • #ORD-102 • 12:45 • Đếm ngược 08:30      │
+│  - 2x Trà Sữa Oolong (Size L, 50% Đường, Trân Châu Trắng)  │
+│  - 1x Cơm Gà Chiên Mắm (Ít cay)                            │
+│ Nút: [ Hủy đơn ]              [ Tiếp nhận / Xác nhận đơn ] │
+└────────────────────────────────────────────────────────────┘
+```
 
-### B. Cấu trúc Modifier Group & Tùy chọn
-- Một món ăn có thể liên kết với nhiều `ModifierGroup`.
-- Mỗi `ModifierGroup` chứa danh sách các `ModifierOption` kèm `extraPrice` (giá cộng thêm).
-- Định danh giỏ hàng (`cartItemId`): Khi khách chọn cùng một món nhưng khác tùy chọn (ví dụ: *1 Trà Đào 50% đường ít đá* và *1 Trà Đào 100% đường nhiều đá*), hệ thống phải tách thành **hai dòng sản phẩm riêng biệt** để bếp không bị nhầm lẫn.
+### Luồng nghiệp vụ trạng thái đơn:
+1. **PENDING (Chờ xử lý)**: Đơn mới gửi từ khách (QR Menu) hoặc từ nhân viên (`OrderScreen`).
+   - Có chuông âm thanh cảnh báo (`soundService.playAlertSound()`).
+   - Nhân viên kiểm tra và bấm **"Tiếp nhận đơn"** → Gọi API `PATCH /api/orders/:id/status` với `{ status: 'CONFIRMED' }`.
+2. **CONFIRMED (Đang xử lý / chế biến)**: Đơn đã được tiếp nhận.
+   - Có đồng hồ đếm ngược thời gian chuẩn bị (`countdownSeconds`).
+   - Sau khi món hoàn thành mang ra bàn, bấm **"Hoàn tất"** → Gọi API `PATCH /api/orders/:id/status` với `{ status: 'DONE' }`.
+3. **Hủy đơn**:
+   - Khi khách đổi ý hoặc có sự cố, nhân viên bấm **"Hủy đơn"** → Xác nhận qua Alert dialog → Gọi `POST /api/orders/:id/void`.
 
----
-
-## 5. Nghiệp Vụ Quản Lý Kho & Định Lượng (BOM - Bill of Materials)
-
-Quản lý kho là trái tim lợi nhuận của doanh nghiệp F&B:
-
-### A. Định lượng nguyên liệu (BOM)
-- Mỗi món trên menu được định nghĩa công thức cấu thành từ các nguyên liệu cơ bản.
-  - *Ví dụ: 1 ly Cà Phê Sữa = 25g Hạt cà phê Robusta + 30ml Sữa đặc + 1 ly nhựa + 1 ống hút.*
-- Khi đơn hàng được thu ngân xác nhận thanh toán hoặc chuyển sang trạng thái chế biến, hệ thống **tự động trừ kho** đúng tỷ lệ số lượng bán ra.
-
-### B. Kiểm kê & Điều chỉnh kho (Stock Adjustment)
-- Cho phép quản lý kiểm kê thực tế theo định kỳ, ghi nhận chênh lệch và cập nhật lý do: Hao hụt tự nhiên, nguyên liệu hỏng, kiểm kê định kỳ, nhập thêm kho.
-- Mọi biến động số lượng đều lưu vết vào bảng `InventoryLog` để phục vụ thanh tra.
-
-### C. Hoàn kho khi hủy món (Void / Reverse Inventory)
-- Nếu món đã chế biến nhưng khách đổi trả do lỗi hoặc đơn bị hủy (Void), thu ngân/quản lý có thể chọn:
-  - **Hủy và hoàn kho:** Nguyên liệu chưa pha chế/chưa khui, cộng lại số lượng vào kho.
-  - **Hủy không hoàn kho:** Món đã chế biến hỏng, ghi nhận hao hụt.
+### Socket.IO Realtime:
+- `order:new`: Tự động chèn đơn mới vào đầu danh sách, phát âm thanh chuông báo.
+- `order:updated`: Tự động cập nhật trạng thái đơn (chuyển tab hoặc đổi trạng thái hiển thị).
 
 ---
 
-## 6. Nghiệp Vụ Khách Hàng Thân Thiết (Loyalty & Vouchers)
+## 5. Quản Lý Thanh Toán — `CashierScreen`
 
-### A. Tích điểm theo số điện thoại
-- Khách hàng không cần đăng ký tài khoản rườm rà; chỉ cần đọc số điện thoại khi thanh toán hoặc tự nhập trên QR Menu.
-- Tỷ lệ tích điểm tiêu chuẩn: Cứ mỗi `X` VNĐ chi tiêu ➔ tích lũy `Y` điểm.
-- Điểm thưởng có thể dùng để khấu trừ trực tiếp vào hóa đơn lần tới (ví dụ: 1 điểm = 1.000 VNĐ).
-
-### B. Phân hạng thành viên (Membership Tiers)
-- Hệ thống hỗ trợ 4 phân hạng tự động theo ngưỡng điểm tích lũy:
-  1. **Hạng Đồng (Bronze):** Khách mới, chiết khấu mặc định 0%.
-  2. **Hạng Bạc (Silver):** Tích lũy đạt ngưỡng 1, giảm 5% trên tổng bill.
-  3. **Hạng Vàng (Gold):** Tích lũy đạt ngưỡng 2, giảm 10% trên tổng bill.
-  4. **Hạng Kim Cương (Diamond):** Khách VIP thân thiết, giảm 15% trên tổng bill + ưu đãi riêng.
-- Màu sắc hiển thị thẻ hạng (`membershipTier.color`) hiển thị đồng bộ trên thẻ khách và giao diện QR Menu.
-
-### C. Mã giảm giá (Vouchers)
-- Quản lý tạo voucher theo hình thức: Giảm theo phần trăm (`PERCENT`) có giới hạn tối đa, hoặc giảm tiền trực tiếp (`FIXED`).
-- Quy định điều kiện áp dụng: Giá trị đơn tối thiểu, số lượt sử dụng tối đa, ngày bắt đầu và ngày hết hạn.
+1. **Hiển thị danh sách bàn có đơn**: Gọi `GET /api/tables?status=OCCUPIED` để lấy danh sách bàn đang có khách dùng bữa.
+2. **Chọn bàn & Xem chi tiết bill**: Gọi `GET /api/sessions/:tableId/current` để lấy toàn bộ các order item, tạm tính, thuế, phụ thu.
+3. **Tích điểm thành viên**: Nhập số điện thoại khách → Gọi `GET /api/loyalty/customer/:phone` → Lấy hạng thẻ (Đồng, Bạc, Vàng) và % giảm giá.
+4. **Áp mã khuyến mãi**: Nhập voucher code → Gọi `POST /api/vouchers/validate`.
+5. **Thanh toán**:
+   - **Tiền mặt**: Nhập số tiền khách đưa → Hệ thống tính tiền thối lại → Bấm xác nhận thanh toán.
+   - **VietQR**: Gọi `POST /api/cashier/create-qr` → Hiển thị mã QR động có kèm số tiền và nội dung chuyển khoản → Lắng nghe sự kiện Socket `payment:completed` để tự động chốt bill.
 
 ---
 
-## 7. Nghiệp Vụ Báo Cáo, Doanh Thu & Kết Ca (Z-Report)
+## 6. Báo Hết Món — `SoldOutScreen`
 
-### A. Báo cáo kết ca (Z-Report)
-- Vào cuối mỗi ca làm việc hoặc cuối ngày, thu ngân/quản lý bắt buộc thực hiện **Chốt ca (Z-Report)**:
-  - Tổng số tiền thực nhận đầu ca (Tiền mặt dự phòng).
-  - Doanh thu tiền mặt thực tế phát sinh trong ca.
-  - Doanh thu chuyển khoản (VietQR / Thẻ).
-  - Tổng số tiền khuyến mãi / voucher đã áp dụng.
-  - Số lượng đơn hoàn thành, số lượng món bị hủy (Voided items).
-  - Số tiền mặt thực tế kiểm đếm trong két so với số liệu phần mềm tính toán.
-- Xuất file báo cáo chuẩn định dạng PDF (in nhiệt) và file Excel (cho kế toán).
-
-### B. Phân tích doanh thu & Xu hướng bán hàng
-- Dashboard cung cấp các chỉ số trọng yếu:
-  - Doanh thu trung bình trên mỗi hóa đơn (AOV - Average Order Value).
-  - Tần suất doanh thu theo từng khung giờ (Hour-of-day heatmap) giúp xếp lịch nhân sự.
-  - Top 5 / Top 10 món bán chạy nhất và món có biên lợi nhuận cao nhất.
+- Hiển thị danh sách toàn bộ món ăn theo danh mục.
+- Switch toggle bật/tắt nhanh trạng thái hết hàng:
+  - Gọi API `PATCH /api/menu/items/:id/sold-out` với `{ isSoldOut: true/false }`.
+  - Backend phát Socket `sold_out:updated` giúp màn hình chọn món trên Mobile, Web và QR Menu của khách cập nhật ngay lập tức không cho đặt món đó nữa.
 
 ---
 
-## 8. Nghiệp Vụ Nhận Diện Thương Hiệu (Tenant Branding)
+## 7. Quản Lý Nguyên Liệu — `InventoryScreen`
 
-Mỗi nhà hàng trên nền tảng HiAI-MenuGo được cá nhân hóa bộ nhận diện:
-- **Logo:** Hiển thị trên góc màn hình QR Menu, phiếu in bếp, hóa đơn thanh toán và giữa mã QR bàn ăn.
-- **Bảng màu chủ đạo:**
-  - `primaryColor`: Màu nhấn chính của các nút bấm CTA, tab active, badge tích điểm, viền highlight.
-  - `secondaryColor`: Màu chuyển sắc (gradient) trên nút xác nhận thanh toán và banner khuyến mãi.
-- **Banner & Background:** Ảnh nền không gian quán hoặc hình ảnh món đặc trưng làm nền menu trực tuyến.
+- Xem danh sách nguyên liệu và tồn kho thực tế.
+- Cảnh báo trực quan:
+  - `quantity <= 0`: Nhãn đỏ **"Hết kho"**.
+  - `quantity <= minStock`: Nhãn vàng **"Sắp hết"**.
+  - `quantity > minStock`: Nhãn xanh **"Đủ hàng"**.
+- Bấm vào nguyên liệu để mở Modal điều chỉnh số lượng (nhập số chênh lệch delta và lý do: Nhập hàng `PURCHASE`, Hư hỏng/Hao hụt `WASTE`, Kiểm kê `ADJUSTMENT`).
+
+---
+
+## 8. Báo Cáo Doanh Thu — `RevenueScreen`
+
+- Chọn khoảng thời gian: Hôm nay, Hôm qua, 7 ngày qua, Tháng này.
+- Thẻ số liệu chính: Doanh thu thực, Tổng số đơn, Giá trị đơn trung bình.
+- Phân tích cơ cấu thanh toán: Tỷ lệ Tiền mặt vs VietQR / Chuyển khoản.
+- Danh sách top món bán chạy nhất trong kỳ.
+
+---
+
+## 9. Realtime Socket Events Trong App Mobile
+
+| Event | Component lắng nghe | Xử lý |
+|---|---|---|
+| `order:new` | `OrdersScreen`, `HomeScreen` | Cập nhật số badge đơn chờ, chèn đơn mới vào danh sách, phát chuông báo `soundService` |
+| `order:updated` | `OrdersScreen` | Cập nhật trạng thái đơn (PENDING / CONFIRMED / DONE) |
+| `call_staff:request` | `NotificationScreen`, `HomeScreen` | Hiện notification bàn đang gọi phục vụ, rung/chuông |
+| `payment:completed` | `CashierScreen`, `TablesScreen` | Đóng bill, cập nhật bàn về trạng thái trống/chờ dọn |
+| `sold_out:updated` | `SoldOutScreen`, `OrderScreen` | Cập nhật trạng thái cho phép chọn món |
+| `table:status-changed`| `TablesScreen` | Đổi màu trạng thái bàn (Trống, Đang dùng, Chờ dọn) |
