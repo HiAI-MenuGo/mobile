@@ -20,14 +20,15 @@ import {
   Plus,
   Search,
   X,
-  RefreshCw,
   TrendingUp,
   TrendingDown,
-  RotateCcw,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../services/api';
 import { useSocketEvent } from '../../hooks/useSocket';
+import { useAuthStore } from '../../data/authStore';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('INV');
 
 export interface Ingredient {
   id: string;
@@ -114,6 +115,7 @@ const AnimatedBottomSheet: React.FC<{
 
 export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
   const insets = useSafeAreaInsets();
+  const currentUser = useAuthStore((s) => s.user);
   const dynamicPaddingBottom = insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6;
   const contentPaddingBottom = dynamicPaddingBottom + 16;
   const [searchQuery, setSearchQuery] = useState('');
@@ -121,21 +123,15 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [ingredients, setIngredients] = useState<Ingredient[]>([
-    { id: 'ing-1', name: 'Hạt Cà Phê Robusta', stock: '18.5 kg', min: '5.0 kg', unit: 'kg', status: 'OK' },
-    { id: 'ing-2', name: 'Sữa Đặc Ngôi Sao', stock: '12 lon', min: '15 lon', unit: 'lon', status: 'WARNING' },
-    { id: 'ing-3', name: 'Trà Xanh Oolong', stock: '3.2 kg', min: '4.0 kg', unit: 'kg', status: 'WARNING' },
-    { id: 'ing-4', name: 'Sữa Tươi Thanh Trùng Barista', stock: '24 hộp 1L', min: '10 hộp 1L', unit: 'hộp 1L', status: 'OK' },
-    { id: 'ing-5', name: 'Đường Mía Tự Nhiên', stock: '45 kg', min: '10 kg', unit: 'kg', status: 'OK' },
-    { id: 'ing-6', name: 'Trân Châu Trắng 3Q', stock: '2.5 kg', min: '5.0 kg', unit: 'kg', status: 'WARNING' },
-  ]);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
 
-  // Load danh sách tồn kho từ API (Task B-012)
+  // Load danh sách tồn kho từ API thật (Task B-012)
   const loadIngredients = async () => {
     try {
       setLoading(true);
-      const data = await api.getIngredients();
-      if (data && data.length > 0) {
+      const branchId = currentUser?.branchId || undefined;
+      const data = await api.getIngredients(branchId);
+      if (Array.isArray(data)) {
         setIngredients(
           data.map((d: any) => ({
             id: d.id,
@@ -148,7 +144,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
         );
       }
     } catch (err: any) {
-      console.log('[InventoryScreen] Fallback to local stock data');
+      log.info('[InventoryScreen] Lỗi tải tồn kho:', err);
     } finally {
       setLoading(false);
     }
@@ -156,7 +152,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
 
   useEffect(() => {
     loadIngredients();
-  }, []);
+  }, [currentUser?.branchId]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -166,7 +162,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
 
   // Socket: cảnh báo tồn kho sắp hết
   useSocketEvent('inventory:warning', (payload: any) => {
-    console.log('⚠️ [InventoryScreen] Low stock warning received:', payload);
+    log.info('⚠️ [InventoryScreen] Low stock warning received:', payload);
     setIngredients((prev) =>
       prev.map((i) =>
         i.id === payload.ingredientId
@@ -218,30 +214,18 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
 
     try {
       setAdjustLoading(true);
-      await api.adjustIngredientStock(adjustingItem.id, {
-        adjustment: num,
-        type: adjustmentType,
-        reason: adjustmentReason,
-      });
-
-      // Update local state
-      const minVal = parseFloat(adjustingItem.min.replace(` ${adjustingItem.unit}`, ''));
-      let finalQty = num;
-      const currentQty = parseFloat(adjustingItem.stock.replace(` ${adjustingItem.unit}`, '')) || 0;
-      if (adjustmentType === 'ADD') finalQty = currentQty + num;
-      if (adjustmentType === 'REMOVE') finalQty = Math.max(0, currentQty - num);
-
-      setIngredients((prev) =>
-        prev.map((i) =>
-          i.id === adjustingItem.id
-            ? {
-                ...i,
-                stock: `${finalQty} ${i.unit}`,
-                status: finalQty <= minVal ? 'WARNING' : 'OK',
-              }
-            : i
-        )
+      await api.adjustIngredientStock(
+        adjustingItem.id,
+        {
+          adjustment: num,
+          type: adjustmentType,
+          reason: adjustmentReason,
+        },
+        currentUser?.branchId || undefined
       );
+
+      // Reload fresh data from backend
+      await loadIngredients();
 
       setAdjustingItem(null);
       Alert.alert('Thành công', `Đã cập nhật tồn kho cho "${adjustingItem.name}"!`);
@@ -252,7 +236,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
     }
   };
 
-  const handleAddIngredient = () => {
+  const handleAddIngredient = async () => {
     if (!newIngredient.name.trim() || !newIngredient.stock.trim() || !newIngredient.min.trim()) {
       Alert.alert('Thiếu thông tin', 'Vui lòng nhập tên, tồn kho và định mức tối thiểu');
       return;
@@ -263,17 +247,26 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
       Alert.alert('Lỗi', 'Tồn kho và định mức phải là số');
       return;
     }
-    const newItem: Ingredient = {
-      id: `ing-${Date.now()}`,
-      name: newIngredient.name.trim(),
-      stock: `${newIngredient.stock.trim()} ${newIngredient.unit}`,
-      min: `${newIngredient.min.trim()} ${newIngredient.unit}`,
-      unit: newIngredient.unit,
-      status: stockVal <= minVal ? 'WARNING' : 'OK',
-    };
-    setIngredients((prev) => [newItem, ...prev]);
-    setNewIngredient({ name: '', unit: 'kg', stock: '', min: '' });
-    setIsAddFormVisible(false);
+    try {
+      setLoading(true);
+      await api.createIngredient(
+        {
+          name: newIngredient.name.trim(),
+          quantity: stockVal,
+          unit: newIngredient.unit,
+          lowStockThreshold: minVal,
+        },
+        currentUser?.branchId || undefined
+      );
+      await loadIngredients();
+      setNewIngredient({ name: '', unit: 'kg', stock: '', min: '' });
+      setIsAddFormVisible(false);
+      Alert.alert('Thành công', `Đã thêm nguyên liệu "${newIngredient.name.trim()}"!`);
+    } catch (err: any) {
+      Alert.alert('Lỗi thêm nguyên liệu', err?.message || 'Không thể tạo nguyên liệu mới');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const filteredList = ingredients.filter((item) => {
@@ -372,7 +365,25 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#D97706']} />}
       >
-        {filteredList.map((item) => {
+        {loading && ingredients.length === 0 ? (
+          <View className="py-16 items-center justify-center">
+            <ActivityIndicator size="large" color="#0D9488" />
+            <Text className="text-[13px] text-textSecondary mt-3 font-medium">Đang tải kho nguyên liệu...</Text>
+          </View>
+        ) : filteredList.length === 0 ? (
+          <View className="py-16 items-center justify-center">
+            <View className="w-16 h-16 rounded-2xl bg-slate-100 items-center justify-center mb-3 border border-border">
+              <Package size={30} color="#94A3B8" />
+            </View>
+            <Text className="text-[15px] font-bold text-textMain">Không tìm thấy nguyên liệu nào</Text>
+            <Text className="text-[12.5px] text-textSecondary mt-1 text-center px-6">
+              {ingredients.length === 0
+                ? 'Chi nhánh chưa có nguyên vật liệu trong kho. Nhấn nút "+" phía trên để thêm mới.'
+                : 'Thử thay đổi từ khoá tìm kiếm hoặc bộ lọc trạng thái.'}
+            </Text>
+          </View>
+        ) : (
+          filteredList.map((item) => {
           const isWarning = item.status === 'WARNING';
 
           return (
@@ -428,7 +439,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ onBack }) => {
               </View>
             </View>
           );
-        })}
+          })
+        )}
       </ScrollView>
 
       {/* Modal Điều Chỉnh Tồn Kho Chuẩn Android / iOS (Task B-012) */}

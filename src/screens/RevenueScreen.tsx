@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,15 @@ import {
   TouchableOpacity,
   Modal,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
+import Svg, {
+  Path,
+  Defs,
+  LinearGradient,
+  Stop,
+  Line,
+} from 'react-native-svg';
 import {
   Coins,
   Calendar as CalendarIcon,
@@ -16,7 +24,6 @@ import {
   Check,
   RotateCcw,
   QrCode,
-  RefreshCw,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../services/api';
@@ -128,8 +135,57 @@ export const RevenueScreen: React.FC = () => {
   };
 
   const dailyTrend = report?.dailyTrend || [];
+  const hourlyTrend = report?.hourlyTrend || [];
+  const monthlyTrend = report?.monthlyTrend || [];
   const recentOrders = report?.recentOrders || [];
-  const maxTrendRevenue = Math.max(...dailyTrend.map((d: any) => d.revenue), 1);
+
+  const { width: screenWidth } = useWindowDimensions();
+
+  // Ngày → giờ (hourlyTrend 24h), Tháng → ngày (dailyTrend), Năm → tháng (monthlyTrend)
+  const trendData = useMemo(() => {
+    if (timeframe === 'day') {
+      return hourlyTrend.map((h: any) => ({
+        label: `${String(h.hour ?? 0).padStart(2, '0')}h`,
+        revenue: h.revenue || 0,
+      }));
+    }
+    if (timeframe === 'year') {
+      return monthlyTrend.map((m: any) => ({
+        label: m.shortLabel || m.label || m.month,
+        revenue: m.revenue || 0,
+      }));
+    }
+    return dailyTrend.map((d: any) => {
+      const parts = (d.date || '').split('-');
+      return {
+        label: parts.length === 3 ? `${parts[2]}/${parts[1]}` : d.date,
+        revenue: d.revenue || 0,
+      };
+    });
+  }, [timeframe, dailyTrend, hourlyTrend, monthlyTrend]);
+  const maxTrendRevenue = useMemo(
+    () => Math.max(...trendData.map((d: any) => d.revenue), 1),
+    [trendData]
+  );
+
+  // Dựng smooth path kiểu monotone giống recharts trên web
+  const buildSmoothPath = (pts: Array<{ x: number; y: number }>) => {
+    if (pts.length === 0) return '';
+    if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
+    let d = `M ${pts[0].x},${pts[0].y}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      const c1x = p1.x + (p2.x - p0.x) / 6;
+      const c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6;
+      const c2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`;
+    }
+    return d;
+  };
 
   const daysInCurrentMonth = new Date(tempYear, tempMonth, 0).getDate();
   const daysArray = Array.from({ length: daysInCurrentMonth }, (_, i) => i + 1);
@@ -151,13 +207,6 @@ export const RevenueScreen: React.FC = () => {
               <CalendarIcon size={14} color="#059669" />
               <Text className="text-[12px] font-bold text-textMain">{getFilterLabel()}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              className="w-8 h-8 rounded-full bg-[#F1F5F9] items-center justify-center border border-border"
-              onPress={loadRevenueData}
-              activeOpacity={0.75}
-            >
-              <RefreshCw size={13} color="#64748B" />
-            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -167,7 +216,7 @@ export const RevenueScreen: React.FC = () => {
         contentContainerStyle={{ padding: 16, paddingTop: 14, paddingBottom: dynamicContentPaddingBottom }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Segmented Control: NGÀY / THÁNG / NĂM */}
+        {/* Segmented Control: Ngày / Tháng / Năm */}
         <View className="flex-row bg-[#E2E8F0] rounded-full p-1 mb-3">
           <TouchableOpacity
             className={`flex-1 py-[9px] items-center rounded-full ${timeframe === 'day' ? 'bg-white' : ''}`}
@@ -175,7 +224,7 @@ export const RevenueScreen: React.FC = () => {
             activeOpacity={0.8}
           >
             <Text className={`text-[13px] ${timeframe === 'day' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
-              Theo Ngày
+              Ngày
             </Text>
           </TouchableOpacity>
 
@@ -185,7 +234,7 @@ export const RevenueScreen: React.FC = () => {
             activeOpacity={0.8}
           >
             <Text className={`text-[13px] ${timeframe === 'month' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
-              Theo Tháng
+              Tháng
             </Text>
           </TouchableOpacity>
 
@@ -195,7 +244,7 @@ export const RevenueScreen: React.FC = () => {
             activeOpacity={0.8}
           >
             <Text className={`text-[13px] ${timeframe === 'year' ? 'text-primaryDark font-extrabold' : 'font-semibold text-textSecondary'}`}>
-              Theo Năm
+              Năm
             </Text>
           </TouchableOpacity>
         </View>
@@ -282,47 +331,116 @@ export const RevenueScreen: React.FC = () => {
               </View>
             </View>
 
-            {/* Visual Breakdown theo mốc ngày */}
-            {dailyTrend.length > 0 && (
-              <View
-                className="bg-white rounded-[20px] p-[18px] border border-border mb-4"
-                style={{
-                  shadowColor: '#0F172A',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.05,
-                  shadowRadius: 10,
-                  elevation: 2,
-                }}
-              >
-                <View className="flex-row justify-between items-center mb-3.5">
-                  <Text className="text-[14px] font-extrabold text-textMain">Biến Động Doanh Thu</Text>
-                  <Text className="text-[11px] font-bold text-primaryDark bg-[#ECFDF5] px-2 py-0.5 rounded-full">
-                    {getFilterLabel()}
-                  </Text>
-                </View>
-
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View className="flex-row items-end h-[120px] pt-3 px-1 gap-3">
-                    {dailyTrend.map((d: any, idx: number) => {
-                      const heightPercent = maxTrendRevenue > 0 ? (d.revenue / maxTrendRevenue) * 100 : 10;
-                      const parts = d.date.split('-');
-                      const shortLabel = parts.length === 3 ? `${parts[2]}/${parts[1]}` : d.date;
-                      return (
-                        <View key={idx} className="items-center min-w-[36px]">
-                          <View className="w-4 h-[90px] bg-[#F1F5F9] rounded-full justify-end overflow-hidden">
-                            <View
-                              className="w-full bg-[#00A389] rounded-full"
-                              style={{ height: `${Math.max(heightPercent, 12)}%` }}
-                            />
-                          </View>
-                          <Text className="text-[10px] font-bold text-textMuted mt-1.5">{shortLabel}</Text>
-                        </View>
-                      );
-                    })}
+            {/* Biểu đồ biến động */}
+            {trendData.length > 0 && (() => {
+              const n = trendData.length;
+              const chartH = 190;
+              const padTop = 12;
+              const padBottom = 8;
+              const innerH = chartH - padTop - padBottom;
+              const availW = Math.max(120, screenWidth - 32 - 36);
+              const innerW = Math.max(availW, n * 16);
+              const step = n > 1 ? innerW / (n - 1) : 0;
+              const pts = trendData.map((d: any, i: number) => ({
+                x: n > 1 ? i * step : innerW / 2,
+                y: padTop + (1 - (d.revenue / maxTrendRevenue)) * innerH,
+              }));
+              const linePath = buildSmoothPath(pts);
+              const areaPath = n > 0 ? `${linePath} L ${pts[n - 1].x},${padTop + innerH} L ${pts[0].x},${padTop + innerH} Z` : '';
+              // Năm (12 điểm): hiện đủ 12 nhãn; nhiều điểm hơn: chia đều tối đa 7 nhãn gồm đầu-cuối
+              const maxLabels = n <= 12 ? n : 7;
+              const visibleIdx = new Set(
+                Array.from({ length: maxLabels }, (_, k) =>
+                  maxLabels === 1 ? 0 : Math.round((k * (n - 1)) / (maxLabels - 1))
+                )
+              );
+              return (
+                <View
+                  className="bg-white rounded-[20px] p-[18px] border border-border mb-4"
+                  style={{
+                    shadowColor: '#0F172A',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 10,
+                    elevation: 2,
+                  }}
+                >
+                  <View className="flex-row justify-between items-center mb-3.5">
+                    <Text className="text-[14px] font-extrabold text-textMain">Biến Động Doanh Thu</Text>
+                    <Text className="text-[11px] font-bold text-primaryDark bg-[#ECFDF5] px-2 py-0.5 rounded-full">
+                      {getFilterLabel()}
+                    </Text>
                   </View>
-                </ScrollView>
-              </View>
-            )}
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View>
+                      <Svg width={innerW} height={chartH + 22}>
+                        <Defs>
+                          <LinearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                            <Stop offset="0" stopColor="#00A389" stopOpacity={0.4} />
+                            <Stop offset="1" stopColor="#00A389" stopOpacity={0} />
+                          </LinearGradient>
+                        </Defs>
+                        {[0, 1, 2, 3].map((i) => {
+                          const y = padTop + innerH - (innerH / 3) * i;
+                          return (
+                            <Line
+                              key={i}
+                              x1={0}
+                              y1={y}
+                              x2={innerW}
+                              y2={y}
+                              stroke="#F1F5F9"
+                              strokeWidth={1}
+                              strokeDasharray="3 3"
+                            />
+                          );
+                        })}
+                        {areaPath !== '' && <Path d={areaPath} fill="url(#revGrad)" />}
+                        {linePath !== '' && (
+                          <Path d={linePath} fill="none" stroke="#00A389" strokeWidth={3} strokeLinecap="round" />
+                        )}
+                      </Svg>
+                      <View style={{ width: innerW, height: 18, position: 'relative' }}>
+                        {trendData.map((d: any, i: number) => {
+                          if (!visibleIdx.has(i)) return null;
+                          if (i === 0) {
+                            return (
+                              <Text key={i} style={{ position: 'absolute', left: 0, fontSize: 10, fontWeight: '700', color: '#94A3B8' }}>
+                                {d.label}
+                              </Text>
+                            );
+                          }
+                          if (i === n - 1) {
+                            return (
+                              <Text key={i} style={{ position: 'absolute', right: 0, fontSize: 10, fontWeight: '700', color: '#94A3B8' }}>
+                                {d.label}
+                              </Text>
+                            );
+                          }
+                          return (
+                            <Text
+                              key={i}
+                              style={{
+                                position: 'absolute',
+                                left: pts[i].x - 20,
+                                width: 40,
+                                textAlign: 'center',
+                                fontSize: 10,
+                                fontWeight: '700',
+                                color: '#94A3B8',
+                              }}
+                            >
+                              {d.label}
+                            </Text>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </ScrollView>
+                </View>
+              );
+            })()}
 
             {/* Danh sách đơn hàng hoàn thành thực tế */}
             <View className="bg-white rounded-[20px] p-4 border border-border">
@@ -381,16 +499,16 @@ export const RevenueScreen: React.FC = () => {
         )}
       </ScrollView>
 
-      {/* Modal Bộ lọc chi tiết Ngày / Tháng / Năm */}
+      {/* Modal Bộ lọc Ngày / Tháng / Năm */}
       <Modal visible={isPickerModalOpen} transparent animationType="fade">
         <View className="flex-1 bg-[rgba(15,23,42,0.5)] justify-center items-center p-5">
           <View className="bg-white rounded-[24px] p-5 w-full max-w-[400px] max-h-[85%]">
             {/* Modal Header */}
             <View className="flex-row justify-between items-center mb-4">
               <Text className="text-[16px] font-extrabold text-textMain">
-                {timeframe === 'day' && 'Chọn Ngày Cần Xem'}
-                {timeframe === 'month' && 'Chọn Tháng Cần Xem'}
-                {timeframe === 'year' && 'Chọn Năm Cần Xem'}
+                {timeframe === 'day' && 'Chọn Ngày'}
+                {timeframe === 'month' && 'Chọn Tháng'}
+                {timeframe === 'year' && 'Chọn Năm'}
               </Text>
               <TouchableOpacity onPress={() => setIsPickerModalOpen(false)}>
                 <X size={20} color="#94A3B8" />
@@ -399,7 +517,7 @@ export const RevenueScreen: React.FC = () => {
 
             {/* Selector Content */}
             <ScrollView className="max-h-[380px]" showsVerticalScrollIndicator={false}>
-              {/* Theo Ngày */}
+              {/* Ngày */}
               {timeframe === 'day' && (
                 <View>
                   <Text className="text-[11px] font-extrabold text-textMuted mb-2">THÁNG & NĂM</Text>
@@ -451,7 +569,7 @@ export const RevenueScreen: React.FC = () => {
                 </View>
               )}
 
-              {/* Theo Tháng */}
+              {/* Tháng */}
               {timeframe === 'month' && (
                 <View>
                   <Text className="text-[11px] font-extrabold text-textMuted mb-2">CHỌN NĂM</Text>
@@ -489,7 +607,7 @@ export const RevenueScreen: React.FC = () => {
                 </View>
               )}
 
-              {/* Theo Năm */}
+              {/* Năm */}
               {timeframe === 'year' && (
                 <View>
                   <Text className="text-[11px] font-extrabold text-textMuted mb-2">CHỌN NĂM HOẠT ĐỘNG</Text>

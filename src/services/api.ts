@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 import axios from 'axios';
 import { AuthUser, LiveOrder, LiveOrderStatus, LoginResponse } from '../types';
+import { createTaggedLogger } from '../utils/logger';
+const log = createTaggedLogger('API');
 
 const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5001' : 'http://localhost:5001';
 const rawBase = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL).trim().replace(/\/+$/, '');
@@ -22,8 +24,10 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Token bộ nhớ (được authStore đồng bộ vào mỗi lần login/logout)
+// Token & Branch bộ nhớ (được authStore đồng bộ vào mỗi lần login/logout)
 let inMemoryToken: string | null = null;
+let inMemoryBranchId: string | null = null;
+
 export function setAuthToken(token: string | null) {
   inMemoryToken = token;
   if (token) {
@@ -36,10 +40,22 @@ export function getAuthToken() {
   return inMemoryToken;
 }
 
+export function setAuthBranchId(branchId: string | null) {
+  inMemoryBranchId = branchId;
+  if (branchId) {
+    apiClient.defaults.headers.common['x-branch-id'] = branchId;
+  } else {
+    delete apiClient.defaults.headers.common['x-branch-id'];
+  }
+}
+export function getAuthBranchId() {
+  return inMemoryBranchId;
+}
+
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
-    console.warn('[API axios]', err?.response?.data?.message || err.message);
+    log.warn('[API axios]', err?.response?.data?.message || err.message);
     return Promise.reject(err);
   }
 );
@@ -57,6 +73,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     if (inMemoryToken && !headers.Authorization) {
       headers.Authorization = `Bearer ${inMemoryToken}`;
     }
+    if (inMemoryBranchId && !headers['x-branch-id']) {
+      headers['x-branch-id'] = inMemoryBranchId;
+    }
     const res = await fetch(url, { ...options, headers });
 
     const json = await res.json();
@@ -70,7 +89,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     }
     return json.data;
   } catch (err: unknown) {
-    console.warn(`[API] Error fetching ${endpoint}:`, (err as Error).message);
+    log.warn(`[API] Error fetching ${endpoint}:`, (err as Error).message);
     throw err;
   }
 }
@@ -228,7 +247,7 @@ export const api = {
   },
 
   // 6. Inventory (Task B-012)
-  getIngredients: (branchId: string = 'default-branch') =>
+  getIngredients: (branchId?: string) =>
     request<
       Array<{
         id: string;
@@ -236,18 +255,32 @@ export const api = {
         quantity: number;
         unit: string;
         lowStockThreshold: number;
-        category: string;
+        category?: string;
       }>
-    >(`/api/ingredients?branchId=${branchId}`),
+    >(`/api/ingredients${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ''}`),
+
+  createIngredient: (
+    data: { name: string; quantity: number; unit: string; lowStockThreshold?: number },
+    branchId?: string
+  ) =>
+    request('/api/ingredients', {
+      method: 'POST',
+      body: JSON.stringify({ ...data, ...(branchId ? { branchId } : {}) }),
+    }),
 
   adjustIngredientStock: (
     id: string,
     data: { adjustment: number; type: 'ADD' | 'REMOVE' | 'SET'; reason: string },
-    branchId: string = 'default-branch'
+    branchId?: string
   ) =>
     request(`/api/ingredients/${id}/adjust`, {
       method: 'PATCH',
-      body: JSON.stringify({ ...data, branchId }),
+      body: JSON.stringify({ ...data, ...(branchId ? { branchId } : {}) }),
+    }),
+
+  deleteIngredient: (id: string, branchId?: string) =>
+    request(`/api/ingredients/${id}${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ''}`, {
+      method: 'DELETE',
     }),
 
   // ── Auth (Task A-002, Thành viên A) ──
@@ -320,6 +353,23 @@ export const api = {
         vietqr: number;
         discount: number;
       }>;
+      hourlyTrend: Array<{
+        time: string;
+        hour: number;
+        orders: number;
+        revenue: number;
+        cash: number;
+        vietqr: number;
+      }>;
+      monthlyTrend: Array<{
+        month: string;
+        label: string;
+        shortLabel: string;
+        orders: number;
+        revenue: number;
+        cash: number;
+        vietqr: number;
+      }>;
       paymentBreakdown: Array<{
         method: string;
         label: string;
@@ -386,4 +436,95 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
+
+  // 9. Staff / Users (Dùng chung API /admin/users backend với Web)
+  getStaffUsers: (params?: { branchId?: string; role?: string; search?: string; isActive?: boolean }) => {
+    const q = new URLSearchParams();
+    if (params?.branchId && params.branchId !== 'ALL') q.append('branchId', params.branchId);
+    if (params?.role && params.role !== 'ALL') q.append('role', params.role);
+    if (params?.search) q.append('search', params.search);
+    if (params?.isActive !== undefined) q.append('isActive', String(params.isActive));
+    const qs = q.toString();
+    return request<Array<{
+      id: string;
+      tenantId: string;
+      branchId: string | null;
+      email: string;
+      name: string;
+      phone: string | null;
+      role: string;
+      isActive: boolean;
+      lastLoginAt: string | null;
+      createdAt: string;
+      branch?: { id: string; name: string; code: string } | null;
+    }>>(`/api/admin/users${qs ? `?${qs}` : ''}`);
+  },
+
+  getStaffRoles: () =>
+    request<Array<{ role: string; label: string; scope: string }>>('/api/admin/users/roles'),
+
+  // 10. Notifications (Thông báo hoạt động)
+  getNotifications: (params?: { branchId?: string; type?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.branchId && params.branchId !== 'ALL') q.append('branchId', params.branchId);
+    if (params?.type && params.type !== 'ALL') q.append('type', params.type);
+    const qs = q.toString();
+    return request<{
+      notifications: Array<{
+        id: string;
+        tenantId?: string;
+        branchId?: string;
+        title: string;
+        message: string;
+        time: string;
+        type: 'ORDER' | 'PAYMENT' | 'SYSTEM' | 'TABLE';
+        isRead: boolean;
+        createdAt?: string;
+      }>;
+      unreadCount: number;
+    }>(`/api/notifications${qs ? `?${qs}` : ''}`);
+  },
+
+  markNotificationAsRead: (id: string) =>
+    request<any>(`/api/notifications/${encodeURIComponent(id)}/read`, {
+      method: 'PATCH',
+    }),
+
+  markAllNotificationsAsRead: (branchId?: string) =>
+    request<{ updatedCount: number }>('/api/notifications/read-all', {
+      method: 'POST',
+      body: JSON.stringify({ branchId }),
+    }),
+
+  // 11. Cài đặt & Tài khoản (Settings & Account)
+  getBranches: () =>
+    request<
+      Array<{
+        id: string;
+        name: string;
+        code: string;
+        address?: string | null;
+        phone?: string | null;
+      }>
+    >('/api/branches'),
+
+  updateProfile: (data: { name?: string; phone?: string; branchId?: string }) =>
+    request<any>('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  submitFeedback: (data: {
+    category: string;
+    title?: string;
+    content: string;
+    userName?: string;
+    userEmail?: string;
+    branchId?: string;
+  }) =>
+    request<any>('/api/customer-requests/feedback', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
+

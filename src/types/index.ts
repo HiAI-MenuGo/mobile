@@ -21,7 +21,7 @@ export interface OrderItemDetail {
   imageUrl?: string;
 }
 
-export type LiveOrderStatus = 'PENDING' | 'CONFIRMED' | 'DONE';
+export type LiveOrderStatus = 'PENDING' | 'CONFIRMED' | 'PREPARING' | 'READY' | 'DONE';
 
 export interface LiveOrder {
   id: string;
@@ -96,7 +96,9 @@ export interface NotificationItem {
   time: string;
   type: 'ORDER' | 'PAYMENT' | 'SYSTEM' | 'TABLE';
   isRead: boolean;
+  createdAt?: string;
 }
+
 
 export interface UserProfile {
   name: string;
@@ -113,14 +115,24 @@ export interface UserProfile {
 // ── Auth (Thành viên A quản lý, Task A-002) ──
 export type UserRole = 'PLATFORM_ADMIN' | 'ADMIN' | 'MANAGER' | 'KITCHEN' | 'CASHIER';
 
+export interface BranchInfo {
+  id: string;
+  name: string;
+  code: string;
+  address?: string | null;
+  phone?: string | null;
+}
+
 export interface AuthUser {
   id: string;
   email?: string;
   name: string;
+  phone?: string;
   role: UserRole;
   tenantId: string;
   branchId: string;
   avatarUrl?: string;
+  branch?: BranchInfo | null;
 }
 
 export interface LoginResponse {

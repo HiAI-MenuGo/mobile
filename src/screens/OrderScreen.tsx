@@ -222,7 +222,7 @@ export const OrderScreen: React.FC<OrderScreenProps> = ({
             )}
             <View>
               <Text className="text-[20px] font-extrabold text-textMain">
-                {editingOrder ? `Sửa Đơn ${editingOrder.id}` : 'Thao Tác Gọi Món'}
+                {editingOrder ? `Sửa Đơn ${editingOrder.id}` : 'Đặt Món'}
               </Text>
               {editingOrder && (
                 <Text className="text-[12px] text-textSecondary mt-0.5">

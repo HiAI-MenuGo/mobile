@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { MenuItem } from '../types';
 import { api } from '../services/api';
+import { createTaggedLogger } from '../utils/logger';
+const log = createTaggedLogger('MENU');
 
 export interface MenuState {
   items: MenuItem[];
@@ -50,7 +52,7 @@ export const useMenuStore = create<MenuState>((set, get) => ({
         return;
       }
     } catch (err: unknown) {
-      console.warn('[menuStore] fetchMenuItems error:', (err as Error).message);
+      log.warn('[menuStore] fetchMenuItems error:', (err as Error).message);
     }
     set({ isLoading: false });
   },

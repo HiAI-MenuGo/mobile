@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View, Platform } from 'react-native';
+import { ActivityIndicator, View, Platform, Text } from 'react-native';
+
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabType, CartItem, MenuItem, OperationSubView } from './src/types';
@@ -12,12 +13,22 @@ import { NotificationScreen } from './src/screens/NotificationScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { useAuthStore } from './src/data/authStore';
+import { useNotificationStore } from './src/data/notificationStore';
 
 function MainApp() {
   const insets = useSafeAreaInsets();
+  const user = useAuthStore((s) => s.user);
+  const unreadNotificationsCount = useNotificationStore((s) => s.unreadCount);
+  const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [operationSubView, setOperationSubView] = useState<OperationSubView>('hub');
   const [cart, setCart] = useState<CartItem[]>([]);
+
+
+  useEffect(() => {
+    fetchNotifications(user?.branchId);
+  }, [fetchNotifications, user?.branchId]);
+
 
   // Thêm món vào giỏ order (hỗ trợ tuỳ chọn từ ItemOptionsScreen)
   const handleAddToCart = (
@@ -140,7 +151,7 @@ function MainApp() {
           activeTab={activeTab}
           onTabChange={(tab) => handleNavigate(tab, 'hub')}
           cartCount={totalCartCount}
-          unreadNotificationsCount={2}
+          unreadNotificationsCount={unreadNotificationsCount}
           bottomInset={insets.bottom}
         />
       )}
@@ -164,14 +175,47 @@ function AuthGate() {
       </View>
     );
   }
+
+
   if (!isAuthenticated) return <LoginScreen />;
   return <MainApp />;
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error('ErrorBoundary caught:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#FEE2E2', padding: 30, justifyContent: 'center' }}>
+          <Text style={{ color: '#DC2626', fontSize: 18, fontWeight: 'bold' }}>LỖI RENDER:</Text>
+          <Text style={{ color: '#991B1B', marginTop: 10 }}>{String(this.state.error?.message || this.state.error)}</Text>
+          <Text style={{ color: '#7F1D1D', marginTop: 10, fontSize: 11 }}>{String(this.state.error?.stack || '')}</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AuthGate />
+      <ErrorBoundary>
+        <AuthGate />
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
+
+
+
+

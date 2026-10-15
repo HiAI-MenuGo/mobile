@@ -1,127 +1,125 @@
 import { Vibration } from 'react-native';
+let Audio: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  Audio = require('expo-av')?.Audio;
+} catch {
+  Audio = null;
+}
 import { create } from 'zustand';
+import { createTaggedLogger } from '../utils/logger';
+
+const log = createTaggedLogger('SOUND');
 
 interface SoundState {
   soundEnabled: boolean;
   vibrationEnabled: boolean;
+  pushEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;
   setVibrationEnabled: (enabled: boolean) => void;
+  setPushEnabled: (enabled: boolean) => void;
 }
 
 export const useSoundStore = create<SoundState>((set) => ({
   soundEnabled: true,
   vibrationEnabled: true,
+  pushEnabled: true,
   setSoundEnabled: (enabled) => set({ soundEnabled: enabled }),
-  setVibrationEnabled: (enabled) => set({ vibrationEnabled: enabled }),
+  setVibrationEnabled: (enabled) => {
+    set({ vibrationEnabled: enabled });
+    if (enabled) {
+      try { Vibration.vibrate(80); } catch {}
+    }
+  },
+  setPushEnabled: (enabled) => set({ pushEnabled: enabled }),
 }));
 
-// Safely resolve createAudioPlayer from expo-audio if available in current native environment
-let createAudioPlayerFn: any = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const expoAudio = require('expo-audio');
-  createAudioPlayerFn = expoAudio?.createAudioPlayer;
-} catch (err) {
-  // Native module not linked in current Expo Go environment; will safely fallback to vibration
-}
+export type SoundKey = 'new_order' | 'payment_complete' | 'low_stock' | 'staff_call' | 'sold_out';
 
 class SoundService {
-  private newOrderPlayer: any = null;
-  private paymentPlayer: any = null;
+  private soundObjects: Map<SoundKey, any> = new Map();
+  private loaded = false;
 
-  constructor() {
-    this.initPlayers();
-  }
-
-  private initPlayers() {
-    if (!createAudioPlayerFn) return;
+  /** Preload tất cả sound files khi app khởi động */
+  async loadSounds() {
+    if (this.loaded || !Audio) return;
     try {
-      this.newOrderPlayer = createAudioPlayerFn(require('../../assets/sounds/new_order.mp3'));
-      this.paymentPlayer = createAudioPlayerFn(require('../../assets/sounds/payment_complete.mp3'));
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const soundsToLoad: { key: SoundKey; uri: any }[] = [
+        { key: 'new_order', uri: require('../assets/sounds/new_order.mp3') },
+        { key: 'payment_complete', uri: require('../assets/sounds/payment_complete.mp3') },
+        { key: 'low_stock', uri: require('../assets/sounds/new_order.mp3') }, // reuse
+        { key: 'staff_call', uri: require('../assets/sounds/payment_complete.mp3') }, // reuse
+        { key: 'sold_out', uri: require('../assets/sounds/new_order.mp3') }, // reuse
+      ];
+
+      await Promise.all(soundsToLoad.map(async ({ key, uri }) => {
+        try {
+          const { sound } = await Audio.Sound.createAsync(uri, { shouldPlay: false, isLooping: false });
+          this.soundObjects.set(key, sound);
+        } catch (e) {
+          log.warn(`Failed to load sound: ${key}`, e);
+        }
+      }));
+      this.loaded = true;
     } catch (e) {
-      // Ignore initial sound loading error
+      log.error('Failed to initialize audio', e);
     }
   }
 
-  /**
-   * Phát âm thanh và rung báo đơn mới (order:new)
-   */
+  /** Phát sound theo key */
+  async play(key: SoundKey) {
+    const { soundEnabled, vibrationEnabled } = useSoundStore.getState();
+    if (!soundEnabled) return;
+
+    const sound = this.soundObjects.get(key);
+    if (sound) {
+      try {
+        await sound.replayAsync();
+      } catch (e) {
+        log.warn(`Play sound failed: ${key}`, e);
+      }
+    }
+
+    if (vibrationEnabled) {
+      try {
+        Vibration.vibrate(this.getVibrationPattern(key));
+      } catch {}
+    }
+  }
+
+  /** Helper aliases */
   async playNewOrderAlert() {
-    const { soundEnabled, vibrationEnabled } = useSoundStore.getState();
-
-    if (vibrationEnabled) {
-      // Rung nhịp kép cảnh báo đơn hàng mới
-      try {
-        Vibration.vibrate([0, 250, 100, 250]);
-      } catch {
-        // Fallback if vibration unavailable
-      }
-    }
-
-    if (!soundEnabled) return;
-
-    try {
-      if (this.newOrderPlayer) {
-        if (typeof this.newOrderPlayer.seekTo === 'function') {
-          await this.newOrderPlayer.seekTo(0);
-        }
-        this.newOrderPlayer.play();
-      } else if (createAudioPlayerFn) {
-        this.newOrderPlayer = createAudioPlayerFn(require('../../assets/sounds/new_order.mp3'));
-        this.newOrderPlayer?.play();
-      }
-    } catch (e) {
-      console.warn('⚠️ [SoundService] Could not play new order sound:', e);
-    }
+    await this.play('new_order');
   }
 
-  /**
-   * Phát âm thanh và rung báo thanh toán thành công (payment:completed)
-   */
   async playPaymentCompleteAlert() {
-    const { soundEnabled, vibrationEnabled } = useSoundStore.getState();
+    await this.play('payment_complete');
+  }
 
-    if (vibrationEnabled) {
-      try {
-        Vibration.vibrate(200);
-      } catch {
-        // Fallback
-      }
-    }
-
-    if (!soundEnabled) return;
-
-    try {
-      if (this.paymentPlayer) {
-        if (typeof this.paymentPlayer.seekTo === 'function') {
-          await this.paymentPlayer.seekTo(0);
-        }
-        this.paymentPlayer.play();
-      } else if (createAudioPlayerFn) {
-        this.paymentPlayer = createAudioPlayerFn(require('../../assets/sounds/payment_complete.mp3'));
-        this.paymentPlayer?.play();
-      }
-    } catch (e) {
-      console.warn('⚠️ [SoundService] Could not play payment sound:', e);
+  private getVibrationPattern(key: SoundKey): number | number[] {
+    switch (key) {
+      case 'new_order': return [0, 250, 100, 250];
+      case 'payment_complete': return 200;
+      case 'low_stock': return [0, 300, 100, 300];
+      case 'staff_call': return [0, 400, 100, 400, 100, 400];
+      case 'sold_out': return [0, 200, 100, 200];
+      default: return 200;
     }
   }
 
-  /**
-   * Giải phóng tài nguyên audio khi tắt app
-   */
+  /** Dọn dẹp khi logout */
   async unloadAll() {
-    try {
-      if (this.newOrderPlayer?.remove) {
-        this.newOrderPlayer.remove();
-        this.newOrderPlayer = null;
-      }
-      if (this.paymentPlayer?.remove) {
-        this.paymentPlayer.remove();
-        this.paymentPlayer = null;
-      }
-    } catch {
-      // Ignore unload error
-    }
+    await Promise.all(Array.from(this.soundObjects.values()).map(s => s.unloadAsync().catch(() => {})));
+    this.soundObjects.clear();
+    this.loaded = false;
   }
 }
 

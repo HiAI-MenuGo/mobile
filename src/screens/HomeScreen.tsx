@@ -4,7 +4,6 @@ import {
   TrendingUp, 
   UtensilsCrossed, 
   CheckCircle2, 
-  ArrowRight,
   Flame,
   Receipt,
 } from 'lucide-react-native';
@@ -13,6 +12,8 @@ import { TabType, OperationSubView } from '../types';
 import { useAuthStore } from '../data/authStore';
 import { useMenuStore } from '../data/menuStore';
 import { api } from '../services/api';
+import { createTaggedLogger } from '../utils/logger';
+const log = createTaggedLogger('HOME');
 
 interface HomeScreenProps {
   onNavigate: (tab: TabType, subView?: OperationSubView) => void;
@@ -40,7 +41,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
         setSummary(sumData);
       }
     } catch (err: unknown) {
-      console.warn('[HomeScreen] loadData error:', (err as Error).message);
+      log.warn('[HomeScreen] loadData error:', (err as Error).message);
     }
   }, [fetchMenuItems]);
 
@@ -112,18 +113,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
           <Text className="text-[28px] font-black text-primaryDark my-2 tracking-[-0.5px]">
             {summary.menuItemCount} Món Thực Đơn
           </Text>
-          <View className="flex-row justify-between items-center pt-2.5 border-t border-[#F1F5F9]">
+          <View className="pt-2.5 border-t border-[#F1F5F9]">
             <Text className="text-[12px] text-textSecondary">
               {summary.pendingOrders} đơn đang chờ chế biến • {summary.pendingPayment} bàn chờ tính tiền
             </Text>
-            <TouchableOpacity 
-              className="flex-row items-center gap-1"
-              onPress={() => onNavigate('revenue')}
-              activeOpacity={0.8}
-            >
-              <Text className="text-[12px] font-bold text-primary">Chi tiết</Text>
-              <ArrowRight size={14} color="#00A389" />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -161,7 +154,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
             <View className="w-9 h-9 rounded-[10px] justify-center items-center mb-2 bg-[#EFF6FF]">
               <CheckCircle2 size={18} color="#2563EB" />
             </View>
-            <Text className="text-[15px] font-extrabold text-textMain">Sơ đồ bàn</Text>
+            <Text className="text-[15px] font-extrabold text-textMain">Quản lý bàn</Text>
             <Text className="text-[10.5px] text-textSecondary mt-0.5 text-center">Quản lý phòng bàn</Text>
           </TouchableOpacity>
         </View>

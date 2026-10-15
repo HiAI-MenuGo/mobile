@@ -121,7 +121,7 @@ export const SoldOutScreen: React.FC<SoldOutScreenProps> = ({
             >
               <ArrowLeft size={18} color="#0F172A" />
             </TouchableOpacity>
-            <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Thực Đơn</Text>
+            <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Món</Text>
           </View>
           <TouchableOpacity
             className="w-9 h-9 items-center justify-center ml-2"
