@@ -17,7 +17,6 @@ import {
   Plus,
   CreditCard,
   UtensilsCrossed,
-  RefreshCw,
   X,
   CheckCircle2,
   User,
@@ -25,6 +24,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../services/api';
 import { useSocketEvent } from '../../hooks/useSocket';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('TABLES');
 
 export interface TableItem {
   id: string;
@@ -86,7 +87,7 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
         setTables(data);
       }
     } catch (err: any) {
-      console.log('[TablesScreen] Using fallback tables:', err.message);
+      log.info('[TablesScreen] Using fallback tables:', err.message);
     } finally {
       setLoading(false);
     }
@@ -104,7 +105,7 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
 
   // Lắng nghe cập nhật trạng thái bàn qua Socket.IO (Task B-005)
   useSocketEvent('table:status-changed', (payload: { tableId: string; status: 'EMPTY' | 'OCCUPIED' | 'RESERVED'; scannedCustomerCount?: number }) => {
-    console.log('⚡ [TablesScreen] Table status changed:', payload);
+    log.info('⚡ [TablesScreen] Table status changed:', payload);
     setTables((prev) =>
       prev.map((t) => {
         if (t.id === payload.tableId) {
@@ -124,7 +125,7 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
   // Lắng nghe đơn mới để tăng số ghế khi có khách mới order
   useSocketEvent('order:new', (payload: { tableId?: string; tableName?: string }) => {
     if (!payload.tableId) return;
-    console.log('⚡ [TablesScreen] New order for table:', payload.tableId);
+    log.info('⚡ [TablesScreen] New order for table:', payload.tableId);
     setTables((prev) =>
       prev.map((t) => {
         if (t.id === payload.tableId && t.status === 'OCCUPIED') {
@@ -171,7 +172,7 @@ export const TablesScreen: React.FC<TablesScreenProps> = ({
               <ArrowLeft size={18} color="#0F172A" />
             </TouchableOpacity>
             <View>
-              <Text className="text-[20px] font-extrabold text-textMain">Sơ Đồ Bàn Ăn</Text>
+              <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Bàn</Text>
             </View>
           </View>
         </View>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -23,13 +24,21 @@ import {
   Plus,
   Cloud,
 } from 'lucide-react-native';
-import * as ImagePicker from 'expo-image-picker';
+let ImagePicker: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  ImagePicker = require('expo-image-picker');
+} catch {
+  ImagePicker = null;
+}
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMenuStore } from '../../data/menuStore';
 import { MenuItem, ModifierGroup } from '../../types';
 import { ModifierDetailScreen } from './ModifierDetailScreen';
 import { PrepTimeDetailScreen } from './PrepTimeDetailScreen';
 import { api } from '../../services/api';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('MENU');
 
 interface MenuItemFormScreenProps {
   initialItem?: MenuItem | null;
@@ -100,7 +109,7 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
     setPrice((current + amount).toString());
   };
 
-  const uploadSelectedAsset = async (asset: ImagePicker.ImagePickerAsset) => {
+  const uploadSelectedAsset = async (asset: any) => {
     setImageUrl(asset.uri);
     setIsUploading(true);
     try {
@@ -113,7 +122,7 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
         setImageUrl(uploaded.url);
       }
     } catch (err: any) {
-      console.warn('Upload image error:', err?.message);
+      log.warn('Upload image error:', err?.message);
       Alert.alert(
         'Tải ảnh lên máy chủ',
         'Không thể tải ảnh lên Cloudinary lúc này, ảnh sẽ được lưu tạm cục bộ: ' + (err?.message || '')
@@ -124,13 +133,17 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
   };
 
   const pickFromLibrary = async () => {
+    if (!ImagePicker?.requestMediaLibraryPermissionsAsync) {
+      Alert.alert('Thông báo', 'Tính năng chọn ảnh từ thư viện không khả dụng trên môi trường Expo Go.');
+      return;
+    }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Cần quyền truy cập', 'Vui lòng cho phép truy cập thư viện ảnh để chọn ảnh món ăn.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions?.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -141,6 +154,10 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
   };
 
   const takePhoto = async () => {
+    if (!ImagePicker?.requestCameraPermissionsAsync) {
+      Alert.alert('Thông báo', 'Tính năng chụp ảnh không khả dụng trên môi trường Expo Go.');
+      return;
+    }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Cần quyền camera', 'Vui lòng cho phép truy cập camera để chụp ảnh món ăn.');
@@ -210,7 +227,58 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
     }
   };
 
+  const hasChanges = () => {
+    if (isEditing && initialItem) {
+      const initialName = initialItem.name || '';
+      const initialPrice = initialItem.price ? initialItem.price.toString() : '';
+      const initialCategory = initialItem.category || '';
+      const initialIsCustom = !categories.includes(initialCategory);
+      const initialDesc = initialItem.description || '';
+      const initialImage = initialItem.imageUrl || PRESET_IMAGES[0].url;
+      const initialPopular = !!initialItem.isPopular;
+      const initialPrep = initialItem.prepTimeMinutes ?? 10;
+      const initialMods = JSON.stringify(initialItem.modifierGroups || []);
+      const currentMods = JSON.stringify(modifierGroups || []);
+
+      if (name !== initialName) return true;
+      if (price !== initialPrice && parsedPrice !== initialItem.price) return true;
+      if (description !== initialDesc) return true;
+      if (imageUrl !== initialImage) return true;
+      if (isPopular !== initialPopular) return true;
+      if (prepTime !== initialPrep) return true;
+      if (currentMods !== initialMods) return true;
+
+      if (isCustomCategory !== initialIsCustom) return true;
+      if (isCustomCategory) {
+        if (customCategoryName.trim() !== initialCategory.trim()) return true;
+      } else {
+        if (category !== initialCategory) return true;
+      }
+
+      return false;
+    }
+
+    // Chế độ thêm món mới
+    const defaultCategory = categories.find((c) => c !== 'Tất cả') || 'Cà phê';
+    if (name.trim() !== '') return true;
+    if (price.trim() !== '' && parsedPrice > 0) return true;
+    if (description.trim() !== '') return true;
+    if (imageUrl !== PRESET_IMAGES[0].url) return true;
+    if (isPopular) return true;
+    if (prepTime !== 10) return true;
+    if (modifierGroups.length > 0) return true;
+    if (isCustomCategory && customCategoryName.trim() !== '') return true;
+    if (!isCustomCategory && category !== defaultCategory) return true;
+
+    return false;
+  };
+
   const handleBackPress = () => {
+    if (!hasChanges()) {
+      onBack();
+      return;
+    }
+
     Alert.alert(
       'Xác nhận thoát',
       'Các thông tin món ăn chưa lưu sẽ bị mất. Bạn có chắc chắn muốn thoát?',
@@ -226,6 +294,31 @@ export const MenuItemFormScreen: React.FC<MenuItemFormScreenProps> = ({
       ]
     );
   };
+
+  useEffect(() => {
+    const backAction = () => {
+      handleBackPress();
+      return true;
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction
+    );
+
+    return () => backHandler.remove();
+  }, [
+    name,
+    price,
+    category,
+    isCustomCategory,
+    customCategoryName,
+    description,
+    imageUrl,
+    isPopular,
+    modifierGroups,
+    prepTime,
+  ]);
 
   if (showModifierDetail) {
     return (

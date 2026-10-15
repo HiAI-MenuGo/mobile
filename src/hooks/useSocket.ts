@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { Platform } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { soundService } from '../services/sound';
+import { createTaggedLogger } from '../utils/logger';
+const log = createTaggedLogger('SOCKET');
 
 // Địa chỉ backend mặc định: Android emulator dùng 10.0.2.2, iOS/Web dùng localhost
 const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5001' : 'http://localhost:5001';
@@ -17,46 +19,94 @@ export interface SocketConfig {
   autoConnect?: boolean;
 }
 
+// Auth mac dinh cho socket. login/logout cap nhat qua setSocketAuth().
+// getSocket() luon dung storedAuth khi caller khong truyen config ro rang,
+// nen socket tao truoc login (guest) se duoc gan token + reconnect sau login.
+let storedAuth: { token?: string | null; tenantId: string; branchId: string } = {
+  tenantId: 'default-tenant',
+  branchId: 'default-branch',
+};
+
+function createSocket(opts: { token?: string | null; tenantId: string; branchId: string; autoConnect?: boolean }): Socket {
+  const { token, tenantId, branchId } = opts;
+  const socket = io(SOCKET_URL, {
+    transports: ['websocket'],
+    autoConnect: opts.autoConnect !== false,
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionAttempts: 10,
+    auth: {
+      token: token || undefined,
+      tenantId,
+      branchId,
+    },
+  });
+
+  socket.on('connect', () => {
+    log.info('[useSocket] Connected to Socket.IO Server at', SOCKET_URL);
+  });
+
+  socket.on('disconnect', (reason) => {
+    log.info('[useSocket] Disconnected:', reason);
+  });
+
+  socket.on('connect_error', (error) => {
+    log.warn('[useSocket] Connection error:', error.message);
+  });
+
+  // Task B-003: Lang nghe don moi va thanh toan thanh cong de phat chuong & rung canh bao
+  socket.on('order:new', () => {
+    soundService.playNewOrderAlert();
+  });
+
+  socket.on('payment:completed', () => {
+    soundService.playPaymentCompleteAlert();
+  });
+
+  return socket;
+}
+
 export function getSocket(config: SocketConfig = {}): Socket {
   if (!sharedSocket) {
-    const { token, tenantId = 'default-tenant', branchId = 'default-branch' } = config;
-
-    sharedSocket = io(SOCKET_URL, {
-      transports: ['websocket'],
-      autoConnect: config.autoConnect !== false,
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 10,
-      auth: {
-        token: token || undefined,
-        tenantId,
-        branchId,
-      },
-    });
-
-    sharedSocket.on('connect', () => {
-      console.log('⚡ [useSocket] Connected to Socket.IO Server at', SOCKET_URL);
-    });
-
-    sharedSocket.on('disconnect', (reason) => {
-      console.log('🔌 [useSocket] Disconnected:', reason);
-    });
-
-    sharedSocket.on('connect_error', (error) => {
-      console.warn('⚠️ [useSocket] Connection error:', error.message);
-    });
-
-    // Task B-003: Lắng nghe đơn mới và thanh toán thành công để phát chuông & rung cảnh báo
-    sharedSocket.on('order:new', () => {
-      soundService.playNewOrderAlert();
-    });
-
-    sharedSocket.on('payment:completed', () => {
-      soundService.playPaymentCompleteAlert();
-    });
+    const token = config.token ?? storedAuth.token;
+    const tenantId = config.tenantId ?? storedAuth.tenantId;
+    const branchId = config.branchId ?? storedAuth.branchId;
+    sharedSocket = createSocket({ token, tenantId, branchId, autoConnect: config.autoConnect });
   }
 
   return sharedSocket;
+}
+
+/**
+ * Cap nhat auth cho socket sau login / restore session / doi chi nhanh.
+ * Giu nguyen socket object nen cac listener (useSocketEvent) khong bi mat;
+ * ep reconnect de server join dung room tenant:/branch:.
+ */
+export function setSocketAuth(config: { token?: string | null; tenantId?: string; branchId?: string }) {
+  storedAuth = {
+    token: config.token ?? null,
+    tenantId: config.tenantId ?? storedAuth.tenantId,
+    branchId: config.branchId ?? storedAuth.branchId,
+  };
+  if (sharedSocket) {
+    sharedSocket.auth = {
+      token: storedAuth.token || undefined,
+      tenantId: storedAuth.tenantId,
+      branchId: storedAuth.branchId,
+    };
+    sharedSocket.disconnect();
+    sharedSocket.connect();
+  }
+}
+
+/** Ngat han socket khi logout de khong nhan event staff nua. */
+export function disconnectSocket() {
+  if (sharedSocket) {
+    sharedSocket.removeAllListeners();
+    sharedSocket.disconnect();
+    sharedSocket = null;
+  }
+  storedAuth = { tenantId: 'default-tenant', branchId: 'default-branch' };
 }
 
 export function useSocket(config: SocketConfig = {}) {
@@ -126,3 +176,14 @@ export function useSocketEvent<T = any>(
     };
   }, [event, ...dependencies]);
 }
+
+/**
+ * Phát sự kiện chuyển chi nhánh sang Socket.IO server để gia nhập đúng room branch
+ */
+export function switchSocketBranch(branchId: string) {
+  storedAuth.branchId = branchId;
+  if (sharedSocket) {
+    sharedSocket.emit('branch:switch', branchId);
+  }
+}
+

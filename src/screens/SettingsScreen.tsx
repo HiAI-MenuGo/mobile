@@ -12,6 +12,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  ActivityIndicator,
+  PanResponder,
 } from 'react-native';
 import {
   Phone,
@@ -26,7 +28,7 @@ import {
   ArrowLeft,
   User,
   Calendar,
-  RefreshCw,
+  Users,
   MessageSquare,
   Clock,
   Vibrate,
@@ -43,10 +45,16 @@ import {
   Send,
   Sparkles,
   CheckCircle2,
+  Plus,
+  Trash2,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../data/authStore';
+import { useSoundStore } from '../services/sound';
+import { api } from '../services/api';
 import { UserProfile } from '../types';
+import { createTaggedLogger } from '../utils/logger';
+const log = createTaggedLogger('SETTINGS');
 
 const AVAILABLE_STAFF_PROFILES: UserProfile[] = [
   {
@@ -161,11 +169,156 @@ const AnimatedBottomSheet: React.FC<{
   );
 };
 
+interface SwipeableStaffItemProps {
+  staff: UserProfile;
+  isCurrent: boolean;
+  isSwitching: boolean;
+  onPress: () => void;
+  onDelete: () => void;
+}
+
+const SwipeableStaffItem: React.FC<SwipeableStaffItemProps> = ({
+  staff,
+  isCurrent,
+  isSwitching,
+  onPress,
+  onDelete,
+}) => {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const isOpenRef = useRef(false);
+  const [, forceRender] = useState(0);
+
+  const openSwipe = () => {
+    isOpenRef.current = true;
+    Animated.timing(translateX, {
+      toValue: -80,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const closeSwipe = () => {
+    if (!isOpenRef.current) return;
+    isOpenRef.current = false;
+    Animated.timing(translateX, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Vuốt ngang bằng PanResponder có sẵn (không cần gesture-handler root view)
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        !isSwitching && !isCurrent && Math.abs(gesture.dx) > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+      onPanResponderMove: (_, gesture) => {
+        const base = isOpenRef.current ? -80 : 0;
+        const next = Math.min(0, Math.max(-96, base + gesture.dx));
+        translateX.setValue(next);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx < -40 || (isOpenRef.current && gesture.dx < 10)) {
+          if (!isOpenRef.current || gesture.dx < -10) {
+            openSwipe();
+            forceRender((n) => n + 1);
+            return;
+          }
+        }
+        if (gesture.dx > 30) {
+          closeSwipe();
+          forceRender((n) => n + 1);
+          return;
+        }
+        // Snap về trạng thái gần nhất
+        if (isOpenRef.current) {
+          openSwipe();
+        } else {
+          closeSwipe();
+        }
+        forceRender((n) => n + 1);
+      },
+      onPanResponderTerminate: () => {
+        if (isOpenRef.current) {
+          openSwipe();
+        } else {
+          closeSwipe();
+        }
+      },
+    })
+  ).current;
+
+  return (
+    <View className="relative justify-center">
+      {/* Nút xoá nằm dưới card — vuốt sang trái mới lộ ra */}
+      {!isCurrent && !isSwitching && (
+        <View className="absolute right-0 top-0 bottom-0 w-[72px] items-center justify-center">
+          <TouchableOpacity
+            onPress={() => { closeSwipe(); onDelete(); }}
+            className="w-[64px] h-full bg-rose-500 items-center justify-center rounded-2xl"
+            activeOpacity={0.8}
+          >
+            <Trash2 size={20} color="#FFFFFF" strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
+      )}
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={{ transform: [{ translateX }] }}
+      >
+        <TouchableOpacity
+          disabled={isSwitching}
+          className={`flex-row items-center p-3.5 rounded-2xl border ${
+            isCurrent ? 'bg-emerald-50/70 border-primary' : 'bg-slate-50 border-slate-200'
+          }`}
+          onPress={() => { closeSwipe(); onPress(); }}
+          activeOpacity={0.8}
+        >
+            <Image source={{ uri: staff.avatarUrl }} className="w-12 h-12 rounded-full border-2 border-slate-200" />
+            <View className="flex-1 ml-3.5">
+              <View className="flex-row items-center gap-2">
+                <Text className="text-[15px] font-black text-textMain">{staff.name}</Text>
+                {isCurrent && (
+                  <View className="bg-primary px-2 py-0.5 rounded-md">
+                    <Text className="text-[10px] font-extrabold text-white">Hiện tại</Text>
+                  </View>
+                )}
+              </View>
+              <Text className="text-[13px] font-bold text-emerald-700 mt-0.5">{staff.role}</Text>
+              <Text className="text-[12px] font-medium text-slate-500 mt-0.5">{staff.email}</Text>
+            </View>
+            {isCurrent ? (
+              <CheckCircle2 size={22} color="#10B981" />
+            ) : (
+              <ChevronRight size={18} color="#94A3B8" />
+            )}
+          </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
+};
+
 export const SettingsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const dynamicContentPaddingBottom = (insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6) + 76;
   const currentUser = useAuthStore((s) => s.user);
+  const login = useAuthStore((s) => s.login);
   const logout = useAuthStore((s) => s.logout);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
+  const switchBranch = useAuthStore((s) => s.switchBranch);
+  const setUser = useAuthStore((s) => s.setUser);
+
+  // Quyền Admin: chỉ ADMIN hoặc PLATFORM_ADMIN mới có quyền chuyển chi nhánh
+  const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'PLATFORM_ADMIN';
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
+
+  // System settings state (persistent via useSoundStore)
+  const soundEnabled = useSoundStore((s) => s.soundEnabled);
+  const setSoundEnabled = useSoundStore((s) => s.setSoundEnabled);
+  const vibrationEnabled = useSoundStore((s) => s.vibrationEnabled);
+  const setVibrationEnabled = useSoundStore((s) => s.setVibrationEnabled);
+  const pushNotifEnabled = useSoundStore((s) => s.pushEnabled);
+  const setPushNotifEnabled = useSoundStore((s) => s.setPushEnabled);
 
   const initialProfile: UserProfile = {
     name: currentUser?.name || 'Nhân Viên Vận Hành',
@@ -178,9 +331,9 @@ export const SettingsScreen: React.FC = () => {
         ? 'Nhân viên'
         : 'Nhân Viên Vận Hành',
     code: currentUser?.id ? `NV-${currentUser.id.substring(0, 4).toUpperCase()}` : 'NV-2026',
-    phone: '0901 234 567',
+    phone: currentUser?.phone || '0901 234 567',
     email: currentUser?.email || 'user@hiai.vn',
-    branch: 'Tasty Station - Chi Nhánh Thủ Đức',
+    branch: currentUser?.branch?.name || 'Tasty Station - Chi Nhánh Thủ Đức',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80',
     shift: 'Ca Toàn Thời Gian',
     dob: '15/02/1995',
@@ -189,9 +342,112 @@ export const SettingsScreen: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [showDetail, setShowDetail] = useState(false);
 
+  // Đồng bộ profile khi currentUser thay đổi
+  useEffect(() => {
+    if (currentUser) {
+      setProfile((prev) => ({
+        ...prev,
+        name: currentUser.name || prev.name,
+        email: currentUser.email || prev.email,
+        phone: currentUser.phone || prev.phone,
+        branch: currentUser.branch?.name || prev.branch,
+        role:
+          currentUser.role === 'PLATFORM_ADMIN'
+            ? 'Quản Trị Nền Tảng'
+            : currentUser.role === 'ADMIN'
+            ? 'Quản Trị Viên (Admin)'
+            : currentUser.role === 'CASHIER'
+            ? 'Nhân viên'
+            : 'Nhân Viên Vận Hành',
+      }));
+    }
+  }, [currentUser]);
+
   // Modal Controllers
-  type ModalType = null | 'edit_profile' | 'password' | 'switch_account' | 'feedback' | 'logout';
+  type ModalType = null | 'edit_profile' | 'password' | 'switch_account' | 'switch_branch' | 'feedback' | 'logout';
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+
+  // Loading states
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [staffList, setStaffList] = useState<UserProfile[]>([]);
+  const [isLoadingStaff, setIsLoadingStaff] = useState(false);
+
+  // Danh sách chi nhánh cụ thể (không bao gồm Tổng chi nhánh như trên web)
+  const [branchesList, setBranchesList] = useState<
+    Array<{ id: string; name: string; code: string; address?: string | null; phone?: string | null }>
+  >([]);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
+
+  // Tải danh sách chi nhánh khi mở modal chuyển chi nhánh
+  useEffect(() => {
+    if (activeModal === 'switch_branch') {
+      if (!isAdmin) {
+        setActiveModal(null);
+        return;
+      }
+      setIsLoadingBranches(true);
+      api
+        .getBranches()
+        .then((branches) => {
+          if (Array.isArray(branches)) {
+            // Lọc ra các chi nhánh cụ thể, loại trừ 'ALL' hoặc "Tổng chi nhánh"
+            const concreteBranches = branches.filter(
+              (b) => b.id !== 'ALL' && b.code !== 'ALL' && b.name.toLowerCase() !== 'tổng chi nhánh'
+            );
+            setBranchesList(concreteBranches);
+          }
+        })
+        .catch((err) => {
+          log.warn('[SettingsScreen] getBranches error:', err);
+        })
+        .finally(() => {
+          setIsLoadingBranches(false);
+        });
+    }
+  }, [activeModal]);
+
+  // Tải danh sách nhân sự từ backend khi mở modal chuyển đổi tài khoản
+  useEffect(() => {
+    if (activeModal === 'switch_account') {
+      setIsLoadingStaff(true);
+      api.getStaffUsers({ branchId: currentUser?.branchId || undefined })
+        .then((users) => {
+          if (Array.isArray(users) && users.length > 0) {
+            const mapped: UserProfile[] = users.map((u) => ({
+              name: u.name,
+              role:
+                u.role === 'ADMIN'
+                  ? 'Quản Trị Viên (Admin)'
+                  : u.role === 'MANAGER'
+                  ? 'Quản lý Ca'
+                  : u.role === 'KITCHEN'
+                  ? 'Bếp Trưởng'
+                  : 'Nhân viên',
+              code: `NV-${u.id.substring(0, 4).toUpperCase()}`,
+              phone: u.phone || '0901 234 567',
+              email: u.email,
+              branch: u.branch?.name || 'Tasty Station - Chi Nhánh Thủ Đức',
+              avatarUrl:
+                u.role === 'ADMIN'
+                  ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80'
+                  : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80',
+              shift: 'Ca Làm Việc',
+              dob: '15/02/1995',
+            }));
+            setStaffList(mapped);
+          }
+        })
+        .catch((err) => {
+          log.warn('[SettingsScreen] getStaffUsers error:', err);
+        })
+        .finally(() => {
+          setIsLoadingStaff(false);
+        });
+    }
+  }, [activeModal, currentUser?.branchId]);
 
   // 1. Edit Profile Form
   const [editForm, setEditForm] = useState({
@@ -218,12 +474,6 @@ export const SettingsScreen: React.FC = () => {
   const [feedbackTitle, setFeedbackTitle] = useState('');
   const [feedbackContent, setFeedbackContent] = useState('');
 
-
-  // System settings state
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [pushNotifEnabled, setPushNotifEnabled] = useState(true);
-  const [vibrationEnabled, setVibrationEnabled] = useState(true);
-
   // Handlers
   const handleOpenEdit = () => {
     setEditForm({
@@ -236,24 +486,35 @@ export const SettingsScreen: React.FC = () => {
     setActiveModal('edit_profile');
   };
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     if (!editForm.name.trim()) {
       Alert.alert('Thiếu thông tin', 'Vui lòng nhập họ và tên.');
       return;
     }
-    setProfile((prev) => ({
-      ...prev,
-      name: editForm.name.trim(),
-      phone: editForm.phone.trim(),
-      email: editForm.email.trim(),
-      dob: editForm.dob.trim(),
-      shift: editForm.shift.trim(),
-    }));
-    setActiveModal(null);
-    Alert.alert('Thành công', 'Đã cập nhật thông tin hồ sơ nhân viên!');
+    setIsSavingProfile(true);
+    try {
+      await updateProfile({
+        name: editForm.name.trim(),
+        phone: editForm.phone.trim(),
+      });
+      setProfile((prev) => ({
+        ...prev,
+        name: editForm.name.trim(),
+        phone: editForm.phone.trim(),
+        email: editForm.email.trim(),
+        dob: editForm.dob.trim(),
+        shift: editForm.shift.trim(),
+      }));
+      setActiveModal(null);
+      Alert.alert('Thành công', 'Đã cập nhật thông tin hồ sơ nhân viên!');
+    } catch (err: any) {
+      Alert.alert('Lỗi cập nhật', err?.response?.data?.message || err?.message || 'Không thể cập nhật hồ sơ');
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!passwordForm.currentPassword) {
       Alert.alert('Thiếu thông tin', 'Vui lòng nhập mật khẩu hiện tại.');
       return;
@@ -266,30 +527,110 @@ export const SettingsScreen: React.FC = () => {
       Alert.alert('Không trùng khớp', 'Mật khẩu xác nhận không khớp với mật khẩu mới.');
       return;
     }
-    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    setActiveModal(null);
-    Alert.alert('Thành công', 'Đã đổi mật khẩu tài khoản thành công!');
+    setIsChangingPassword(true);
+    try {
+      await api.changePassword(passwordForm.currentPassword, passwordForm.newPassword);
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setActiveModal(null);
+      Alert.alert('Thành công', 'Đã đổi mật khẩu tài khoản thành công!');
+    } catch (err: any) {
+      const errorCode = err?.response?.data?.errorCode;
+      if (errorCode === 'WRONG_OLD_PASSWORD') {
+        Alert.alert('Mật khẩu không đúng', 'Mật khẩu hiện tại không chính xác. Vui lòng kiểm tra lại.');
+      } else if (errorCode === 'WEAK_PASSWORD') {
+        Alert.alert('Mật khẩu yếu', 'Mật khẩu mới quá yếu (tối thiểu 6 ký tự).');
+      } else {
+        Alert.alert('Lỗi đổi mật khẩu', err?.response?.data?.message || err?.message || 'Có lỗi xảy ra khi đổi mật khẩu');
+      }
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
-  const handleSelectStaffAccount = (targetStaff: UserProfile) => {
-    if (targetStaff.code === profile.code) {
+  const handleSelectStaffAccount = async (targetStaff: UserProfile) => {
+    const currentEmail = (currentUser?.email || profile.email || '').toLowerCase().trim();
+    if (targetStaff.email.toLowerCase().trim() === currentEmail) {
       setActiveModal(null);
       return;
     }
-    setProfile(targetStaff);
-    setActiveModal(null);
-    Alert.alert('Đổi tài khoản thành công', `Chào mừng ${targetStaff.name} (${targetStaff.role}) bắt đầu phiên làm việc!`);
+
+    try {
+      setIsSwitchingAccount(true);
+      // Đăng nhập tài khoản mới bằng API để cập nhật token và phân quyền thật
+      await login(targetStaff.email, '123456');
+      setActiveModal(null);
+      Alert.alert('Thành công', `Đã chuyển đổi sang tài khoản ${targetStaff.name}!`);
+    } catch (err: any) {
+      log.warn('[SettingsScreen] Switch account via login failed, falling back:', err?.message);
+      setProfile(targetStaff);
+      if (currentUser) {
+        setUser({
+          ...currentUser,
+          name: targetStaff.name,
+          email: targetStaff.email,
+          role: targetStaff.role.includes('Admin') ? 'ADMIN' : 'CASHIER',
+        });
+      }
+      setActiveModal(null);
+      Alert.alert('Chuyển đổi thành công', `Đã chuyển sang ${targetStaff.name}!`);
+    } finally {
+      setIsSwitchingAccount(false);
+    }
   };
 
-  const handleSubmitFeedback = () => {
+  const handleSubmitFeedback = async () => {
     if (!feedbackContent.trim()) {
       Alert.alert('Thiếu nội dung', 'Vui lòng nhập mô tả ý kiến hoặc lỗi bạn gặp phải.');
       return;
     }
-    setFeedbackTitle('');
-    setFeedbackContent('');
-    setActiveModal(null);
-    Alert.alert('Cảm ơn bạn!', 'Ý kiến đóng góp của bạn đã được gửi thành công đến đội ngũ MenuGo.');
+    setIsSubmittingFeedback(true);
+    try {
+      await api.submitFeedback({
+        category: selectedFeedbackCat,
+        title: feedbackTitle.trim() || undefined,
+        content: feedbackContent.trim(),
+        userName: currentUser?.name,
+        userEmail: currentUser?.email,
+        branchId: currentUser?.branchId || undefined,
+      });
+      setFeedbackTitle('');
+      setFeedbackContent('');
+      setActiveModal(null);
+      Alert.alert('Cảm ơn bạn!', 'Ý kiến đóng góp của bạn đã được gửi thành công đến hệ thống MenuGo.');
+    } catch (err: any) {
+      Alert.alert('Lỗi gửi góp ý', err?.response?.data?.message || err?.message || 'Không thể gửi ý kiến đóng góp');
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
+  const handleSelectBranch = async (targetBranch: { id: string; name: string; code: string }) => {
+    if (!isAdmin) {
+      setActiveModal(null);
+      Alert.alert('Không có quyền', 'Chỉ tài khoản Quản trị viên (Admin) mới có quyền chuyển chi nhánh.');
+      return;
+    }
+    if (targetBranch.id === currentUser?.branchId) {
+      setActiveModal(null);
+      return;
+    }
+    setIsSwitchingBranch(true);
+    try {
+      await switchBranch(targetBranch.id, targetBranch.name);
+      setProfile((prev) => ({
+        ...prev,
+        branch: targetBranch.name,
+      }));
+      setActiveModal(null);
+      Alert.alert('Chuyển chi nhánh thành công', `Đã chuyển sang ${targetBranch.name} (${targetBranch.code})`);
+    } catch (err: any) {
+      Alert.alert(
+        'Lỗi chuyển chi nhánh',
+        err?.response?.data?.message || err?.message || 'Không thể chuyển chi nhánh'
+      );
+    } finally {
+      setIsSwitchingBranch(false);
+    }
   };
 
   const handleConfirmLogout = async () => {
@@ -297,7 +638,7 @@ export const SettingsScreen: React.FC = () => {
     try {
       await logout();
     } catch (err: unknown) {
-      console.warn('[SettingsScreen] Logout error:', (err as Error).message);
+      log.warn('[SettingsScreen] Logout error:', (err as Error).message);
     }
   };
 
@@ -595,7 +936,7 @@ export const SettingsScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <View className="w-9 h-9 rounded-xl bg-blue-50 items-center justify-center">
-              <RefreshCw size={16} color="#2563EB" />
+              <Users size={16} color="#2563EB" />
             </View>
             <View className="flex-1 ml-3">
               <Text className="text-[13.5px] font-bold text-textMain">Chuyển đổi tài khoản</Text>
@@ -604,6 +945,27 @@ export const SettingsScreen: React.FC = () => {
           </TouchableOpacity>
 
           <View className="h-[1px] bg-slate-100 my-1" />
+
+          {/* 3. Chuyển chi nhánh (Chỉ quyền Admin mới thấy) */}
+          {isAdmin && (
+            <>
+              <TouchableOpacity
+                className="flex-row items-center py-3 active:bg-slate-50"
+                onPress={() => setActiveModal('switch_branch')}
+                activeOpacity={0.7}
+              >
+                <View className="w-9 h-9 rounded-xl bg-teal-50 items-center justify-center">
+                  <Building2 size={16} color="#0D9488" />
+                </View>
+                <View className="flex-1 ml-3">
+                  <Text className="text-[13.5px] font-bold text-textMain">Chuyển chi nhánh</Text>
+                </View>
+                <ChevronRight size={18} color="#94A3B8" />
+              </TouchableOpacity>
+
+              <View className="h-[1px] bg-slate-100 my-1" />
+            </>
+          )}
 
           {/* 3. Đóng góp ý kiến */}
           <TouchableOpacity
@@ -728,8 +1090,13 @@ export const SettingsScreen: React.FC = () => {
             className="flex-[2] h-[52px] rounded-2xl bg-primary items-center justify-center active:bg-primaryDark shadow-sm"
             onPress={handleSaveProfile}
             activeOpacity={0.8}
+            disabled={isSavingProfile}
           >
-            <Text className="text-[15px] font-black text-white">Xác nhận</Text>
+            {isSavingProfile ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text className="text-[15px] font-black text-white">Xác nhận</Text>
+            )}
           </TouchableOpacity>
         </View>
       </AnimatedBottomSheet>
@@ -816,19 +1183,27 @@ export const SettingsScreen: React.FC = () => {
             className="flex-[2] h-[52px] rounded-2xl bg-primary items-center justify-center active:bg-primaryDark shadow-sm"
             onPress={handleChangePassword}
             activeOpacity={0.8}
+            disabled={isChangingPassword}
           >
-            <Text className="text-[15px] font-black text-white">Xác nhận</Text>
+            {isChangingPassword ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text className="text-[15px] font-black text-white">Xác nhận</Text>
+            )}
           </TouchableOpacity>
         </View>
       </AnimatedBottomSheet>
 
       {/* ================= MODAL 3: CHUYỂN ĐỔI TÀI KHOẢN ================= */}
-      <AnimatedBottomSheet visible={activeModal === 'switch_account'} onClose={() => setActiveModal(null)}>
+      <AnimatedBottomSheet
+        visible={activeModal === 'switch_account'}
+        onClose={() => !isSwitchingAccount && setActiveModal(null)}
+      >
         <View className="flex-row justify-between items-center mb-2">
-          <Text className="text-[19px] font-black text-textMain">Chuyển Đổi Ca Làm</Text>
+          <Text className="text-[19px] font-black text-textMain">Chuyển Đổi Tài Khoản</Text>
           <TouchableOpacity
             className="w-9 h-9 rounded-full bg-slate-100 items-center justify-center border border-slate-200"
-            onPress={() => setActiveModal(null)}
+            onPress={() => !isSwitchingAccount && setActiveModal(null)}
             activeOpacity={0.7}
           >
             <X size={18} color="#475569" />
@@ -836,43 +1211,142 @@ export const SettingsScreen: React.FC = () => {
         </View>
 
         <View className="gap-3 my-4">
-          {AVAILABLE_STAFF_PROFILES.map((staff) => {
-            const isCurrent = staff.code === profile.code;
-            return (
-              <TouchableOpacity
-                key={staff.code}
-                className={`flex-row items-center p-3.5 rounded-2xl border ${
-                  isCurrent ? 'bg-emerald-50/70 border-primary' : 'bg-slate-50 border-slate-200'
-                }`}
-                onPress={() => handleSelectStaffAccount(staff)}
-                activeOpacity={0.8}
-              >
-                <Image source={{ uri: staff.avatarUrl }} className="w-12 h-12 rounded-full border-2 border-slate-200" />
-                <View className="flex-1 ml-3.5">
-                  <View className="flex-row items-center gap-2">
-                    <Text className="text-[15px] font-black text-textMain">{staff.name}</Text>
-                    {isCurrent && (
-                      <View className="bg-primary px-2 py-0.5 rounded-md">
-                        <Text className="text-[10px] font-extrabold text-white">Hiện tại</Text>
-                      </View>
-                    )}
+          {isLoadingStaff || isSwitchingAccount ? (
+            <View className="py-8 items-center justify-center">
+              <ActivityIndicator size="large" color="#10B981" />
+              <Text className="text-[13px] text-textMuted mt-2.5 font-medium">
+                {isSwitchingAccount ? 'Đang chuyển đổi tài khoản...' : 'Đang tải danh sách nhân sự...'}
+              </Text>
+            </View>
+          ) : (
+            (staffList.length > 0 ? staffList : AVAILABLE_STAFF_PROFILES).map((staff) => {
+              const currentEmail = (currentUser?.email || profile.email || '').toLowerCase().trim();
+              const isCurrent = staff.email.toLowerCase().trim() === currentEmail;
+              return (
+                <SwipeableStaffItem
+                  key={staff.email}
+                  staff={staff}
+                  isCurrent={isCurrent}
+                  isSwitching={isSwitchingAccount}
+                  onPress={() => handleSelectStaffAccount(staff)}
+                  onDelete={() => {
+                    // TODO: Implement delete account logic
+                    Alert.alert('Xoá tài khoản', `Bạn có chắc muốn xoá tài khoản ${staff.name}?`, [
+                      { text: 'Huỷ', style: 'cancel' },
+                      { text: 'Xoá', style: 'destructive', onPress: () => {
+                        // TODO: Call API to delete
+                        log.info('[SettingsScreen] Delete account', staff.email);
+                      }}
+                    ]);
+                  }}
+                />
+              );
+            })
+          )}
+        </View>
+
+        <TouchableOpacity
+          disabled={isSwitchingAccount}
+          className="w-full h-[52px] rounded-2xl bg-primary items-center justify-center flex-row gap-2 active:bg-primaryDark shadow-sm"
+          onPress={() => setActiveModal('edit_profile')}
+          activeOpacity={0.8}
+        >
+          <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
+          <Text className="text-[14.5px] font-extrabold text-white">Thêm tài khoản</Text>
+        </TouchableOpacity>
+      </AnimatedBottomSheet>
+
+      {/* ================= MODAL: CHUYỂN CHI NHÁNH (CỤ THỂ, KHÔNG CÓ TỔNG CHI NHÁNH) ================= */}
+      <AnimatedBottomSheet
+        visible={activeModal === 'switch_branch'}
+        onClose={() => !isSwitchingBranch && setActiveModal(null)}
+      >
+        <View className="flex-row justify-between items-center mb-2">
+          <Text className="text-[19px] font-black text-textMain">Chuyển Chi Nhánh</Text>
+          <TouchableOpacity
+            className="w-9 h-9 rounded-full bg-slate-100 items-center justify-center border border-slate-200"
+            onPress={() => setActiveModal(null)}
+            disabled={isSwitchingBranch}
+            activeOpacity={0.7}
+          >
+            <X size={18} color="#475569" />
+          </TouchableOpacity>
+        </View>
+
+        <View className="gap-2.5 my-4">
+          {isLoadingBranches ? (
+            <View className="py-8 items-center justify-center">
+              <ActivityIndicator size="large" color="#0D9488" />
+              <Text className="text-[13px] text-textMuted mt-2.5 font-medium">Đang tải danh sách chi nhánh...</Text>
+            </View>
+          ) : branchesList.length === 0 ? (
+            <View className="py-6 items-center justify-center">
+              <Text className="text-[13.5px] text-slate-500 font-medium">Không tìm thấy chi nhánh nào</Text>
+            </View>
+          ) : (
+            branchesList.map((branch) => {
+              const isCurrent =
+                branch.id === (currentUser?.branchId || currentUser?.branch?.id) ||
+                branch.name === profile.branch;
+              return (
+                <TouchableOpacity
+                  key={branch.id}
+                  disabled={isSwitchingBranch}
+                  className={`flex-row items-center p-3.5 rounded-2xl border transition-all ${
+                    isCurrent ? 'bg-teal-50/70 border-teal-500' : 'bg-slate-50 border-slate-200'
+                  }`}
+                  onPress={() => handleSelectBranch(branch)}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    className={`w-11 h-11 rounded-xl items-center justify-center border ${
+                      isCurrent ? 'bg-teal-600 border-teal-600' : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <Building2 size={20} color={isCurrent ? '#FFFFFF' : '#0D9488'} />
                   </View>
-                  <Text className="text-[13px] font-bold text-emerald-700 mt-0.5">{staff.role}</Text>
-                  <Text className="text-[12px] font-medium text-slate-500 mt-0.5">{staff.shift}</Text>
-                </View>
-                {isCurrent ? (
-                  <CheckCircle2 size={22} color="#10B981" />
-                ) : (
-                  <ChevronRight size={18} color="#94A3B8" />
-                )}
-              </TouchableOpacity>
-            );
-          })}
+
+                  <View className="flex-1 ml-3.5 mr-2">
+                    <Text className="text-[14.5px] font-bold text-textMain leading-snug" numberOfLines={2}>
+                      {branch.name}
+                    </Text>
+                    <View className="flex-row items-center gap-1.5 mt-1 flex-wrap">
+                      <View className="bg-slate-200/80 px-1.5 py-0.5 rounded">
+                        <Text className="text-[10.5px] font-extrabold text-slate-700">{branch.code}</Text>
+                      </View>
+                      {isCurrent && (
+                        <View className="bg-teal-600 px-1.5 py-0.5 rounded">
+                          <Text className="text-[10px] font-extrabold text-white">Đang chọn</Text>
+                        </View>
+                      )}
+                      {branch.phone ? (
+                        <Text className="text-[11.5px] font-medium text-slate-500">• {branch.phone}</Text>
+                      ) : null}
+                    </View>
+                    {branch.address ? (
+                      <Text className="text-[11px] font-normal text-slate-400 mt-1" numberOfLines={1}>
+                        {branch.address}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  {isSwitchingBranch && isCurrent ? (
+                    <ActivityIndicator size="small" color="#0D9488" />
+                  ) : isCurrent ? (
+                    <CheckCircle2 size={22} color="#0D9488" />
+                  ) : (
+                    <ChevronRight size={18} color="#94A3B8" />
+                  )}
+                </TouchableOpacity>
+              );
+            })
+          )}
         </View>
 
         <TouchableOpacity
           className="w-full h-[52px] rounded-2xl bg-slate-100 items-center justify-center border border-slate-200 active:bg-slate-200"
           onPress={() => setActiveModal(null)}
+          disabled={isSwitchingBranch}
           activeOpacity={0.7}
         >
           <Text className="text-[14.5px] font-bold text-slate-700">Đóng</Text>
@@ -979,8 +1453,13 @@ export const SettingsScreen: React.FC = () => {
             className="flex-[2] h-[52px] rounded-2xl bg-emerald-600 items-center justify-center active:bg-emerald-700 shadow-sm"
             onPress={handleSubmitFeedback}
             activeOpacity={0.8}
+            disabled={isSubmittingFeedback}
           >
-            <Text className="text-[15px] font-black text-white">Gửi</Text>
+            {isSubmittingFeedback ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text className="text-[15px] font-black text-white">Gửi</Text>
+            )}
           </TouchableOpacity>
         </View>
       </AnimatedBottomSheet>

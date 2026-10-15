@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TextInput,
   Alert,
   Image,
+  RefreshControl,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -27,6 +28,8 @@ import { useMenuStore } from '../../data/menuStore';
 import { api } from '../../services/api';
 import { useSocketEvent } from '../../hooks/useSocket';
 import { soundService } from '../../services/sound';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('ORDERS');
 
 export interface OrdersScreenProps {
   orders?: LiveOrder[];
@@ -59,11 +62,32 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  // Đơn ở bếp (đã xác nhận / đang chế biến / sẵn sàng) gộp chung vào tab "Đã xác nhận"
+  const isKitchenStatus = (s: LiveOrderStatus) =>
+    s === 'CONFIRMED' || s === 'PREPARING' || s === 'READY';
+
+  const statusLabel = (s: LiveOrderStatus) => {
+    switch (s) {
+      case 'PENDING':
+        return 'Đang chờ';
+      case 'CONFIRMED':
+        return 'Đã xác nhận';
+      case 'PREPARING':
+        return 'Đang chế biến';
+      case 'READY':
+        return 'Sẵn sàng phục vụ';
+      case 'DONE':
+        return 'Hoàn thành';
+      default:
+        return s;
+    }
+  };
+
   useEffect(() => {
     const timer = setInterval(() => {
       setOrders((prev) =>
         prev.map((ord) => {
-          if (ord.status === 'CONFIRMED' && ord.countdownSeconds !== undefined) {
+          if (isKitchenStatus(ord.status) && ord.countdownSeconds !== undefined) {
             return {
               ...ord,
               countdownSeconds: Math.max(0, ord.countdownSeconds - 1),
@@ -78,11 +102,16 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
   }, []);
 
   const pendingOrders = orders.filter((o) => o.status === 'PENDING');
-  const confirmedOrders = orders.filter((o) => o.status === 'CONFIRMED');
+  const confirmedOrders = orders.filter((o) => o.status !== 'PENDING' && o.status !== 'DONE');
   const doneOrders = orders.filter((o) => o.status === 'DONE');
 
   const currentTabOrders = orders.filter((o) => {
-    const matchStatus = o.status === activeTab;
+    const matchStatus =
+      activeTab === 'PENDING'
+        ? o.status === 'PENDING'
+        : activeTab === 'DONE'
+          ? o.status === 'DONE'
+          : o.status !== 'PENDING' && o.status !== 'DONE';
     const matchSearch =
       searchQuery.trim() === '' ||
       o.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -91,35 +120,50 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
     return matchStatus && matchSearch;
   });
 
-  // Tải danh sách đơn active từ API khi mount (Task B-006)
-  useEffect(() => {
-    api.getActiveOrders()
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchActiveOrders = useCallback(() => {
+    return api.getActiveOrders()
       .then((data) => {
         if (data) {
           setOrders(data);
         }
       })
       .catch((err) => {
-        console.log('[OrdersScreen] Active orders API fallback:', err.message);
+        log.info('[OrdersScreen] Active orders API fallback:', err.message);
       });
   }, []);
 
+  // Tải danh sách đơn active từ API khi mount (Task B-006)
+  useEffect(() => {
+    fetchActiveOrders();
+  }, [fetchActiveOrders]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchActiveOrders();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   // Lắng nghe Socket.IO sự kiện đơn hàng live (Task B-006 & Task B-003)
   useSocketEvent('order:new', (newOrder: LiveOrder) => {
-    console.log('⚡ [OrdersScreen] New order received via Socket:', newOrder.code);
+    log.info('⚡ [OrdersScreen] New order received via Socket:', newOrder.code);
     soundService.playNewOrderAlert();
     setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
   });
 
   useSocketEvent('order:updated', (payload: { orderId: string; status: LiveOrderStatus }) => {
-    console.log('⚡ [OrdersScreen] Order status updated via Socket:', payload);
+    log.info('⚡ [OrdersScreen] Order status updated via Socket:', payload);
     setOrders((prev) =>
       prev.map((o) => (o.id === payload.orderId ? { ...o, status: payload.status } : o))
     );
   });
 
   useSocketEvent('order:voided', (payload: { orderId: string }) => {
-    console.log('⚡ [OrdersScreen] Order voided via Socket:', payload);
+    log.info('⚡ [OrdersScreen] Order voided via Socket:', payload);
     setOrders((prev) => prev.filter((o) => o.id !== payload.orderId));
     if (selectedOrder?.id === payload.orderId) {
       setSelectedOrder(null);
@@ -167,7 +211,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
 
     // Gọi API cập nhật trạng thái đơn (Task B-007)
     api.updateOrderStatus(orderId, nextStatus).catch((err) => {
-      console.warn('[OrdersScreen] Failed to update order status via API:', err.message);
+      log.warn('[OrdersScreen] Failed to update order status via API:', err.message);
     });
   };
 
@@ -182,7 +226,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
           setSelectedOrder(null);
           // Gọi API hủy đơn và hoàn kho (Task B-007)
           api.voidOrder(orderId, 'Hủy bởi thu ngân trên Mobile').catch((err) => {
-            console.warn('[OrdersScreen] Failed to void order via API:', err.message);
+            log.warn('[OrdersScreen] Failed to void order via API:', err.message);
           });
         },
       },
@@ -193,10 +237,10 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
   if (selectedOrder) {
     const activeOrder = orders.find((o) => o.id === selectedOrder.id) || selectedOrder;
     const totalItemsCount = activeOrder.items.reduce((s, it) => s + it.quantity, 0);
-    const isConfirmed = activeOrder.status === 'CONFIRMED';
+    const isConfirmed = isKitchenStatus(activeOrder.status);
     const countdown = activeOrder.countdownSeconds ?? 0;
     const isOverdue = isConfirmed && countdown === 0;
-    const hasBottomAction = activeOrder.status === 'PENDING' || activeOrder.status === 'CONFIRMED';
+    const hasBottomAction = activeOrder.status === 'PENDING' || isKitchenStatus(activeOrder.status);
     const detailContentPaddingBottom = hasBottomAction ? dynamicPaddingBottom + 78 : dynamicPaddingBottom + 16;
 
     return (
@@ -367,7 +411,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
                 </View>
               )}
 
-              {activeOrder.status === 'CONFIRMED' && (
+              {isKitchenStatus(activeOrder.status) && (
                 <View className="flex-1">
                   <TouchableOpacity
                     className="flex-row items-center justify-center gap-1.5 bg-primaryDark py-[11px] rounded-full"
@@ -395,7 +439,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
             <ArrowLeft size={18} color="#0F172A" />
           </TouchableOpacity>
           <View className="flex-1">
-            <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Đơn Hàng</Text>
+            <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Đơn</Text>
           </View>
         </View>
 
@@ -515,6 +559,14 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
         className="flex-1"
         contentContainerStyle={{ padding: 16, paddingBottom: contentPaddingBottom, gap: 12 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={['#00A389']}
+            tintColor="#00A389"
+          />
+        }
       >
         {currentTabOrders.length === 0 ? (
           <View className="bg-white rounded-[20px] p-8 items-center border border-border">
@@ -552,7 +604,14 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({
                 <View className="flex-row justify-between items-center mb-2">
                   <View className="flex-row items-center gap-2">
                     <Text className="text-[15px] font-extrabold text-textMain">{order.code}</Text>
-                    {order.status === 'CONFIRMED' && (
+                    {(order.status === 'PREPARING' || order.status === 'READY') && (
+                      <View className="px-2 py-0.5 rounded-full bg-[#EFF6FF]">
+                        <Text className="text-[10px] font-bold text-[#2563EB]">
+                          {statusLabel(order.status)}
+                        </Text>
+                      </View>
+                    )}
+                    {isKitchenStatus(order.status) && (
                       <View
                         className={`flex-row items-center gap-1 px-2 py-0.5 rounded-full ${
                           order.countdownSeconds === 0 ? 'bg-[#EF4444]' : 'bg-[#ECFDF5]'

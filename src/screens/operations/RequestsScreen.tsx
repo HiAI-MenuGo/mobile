@@ -1,29 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   Alert,
-  Modal,
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
 import {
   ArrowLeft,
-  BellRing,
+  UserCheck,
   CheckCircle2,
-  X,
-  ChevronRight,
+  CreditCard,
   Clock,
-  DollarSign,
-  User,
-  Filter,
-  RefreshCw,
+  X,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../services/api';
 import { useSocketEvent } from '../../hooks/useSocket';
+import { useAuthStore } from '../../data/authStore';
+import { soundService } from '../../services/sound';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('REQ');
 
 export interface CustomerCall {
   id: string;
@@ -44,441 +43,434 @@ interface RequestsScreenProps {
   onBack: () => void;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Đang chờ',
-  PROCESSING: 'Đang xử lý',
-  COMPLETED: 'Hoàn thành',
-  CANCELLED: 'Đã huỷ',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-amber-100 text-amber-700 border-amber-200',
-  PROCESSING: 'bg-blue-100 text-blue-700 border-blue-200',
-  COMPLETED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  CANCELLED: 'bg-slate-100 text-slate-700 border-slate-200',
-};
-
-const TYPE_LABELS: Record<string, string> = {
-  PAYMENT: 'Thanh toán',
-  STAFF: 'Gọi NV',
-};
-
-const TYPE_COLORS: Record<string, string> = {
-  PAYMENT: 'bg-green-100 text-green-700',
-  STAFF: 'bg-teal-100 text-teal-700',
-};
-
-const TYPE_ICONS: Record<string, any> = {
-  PAYMENT: DollarSign,
-  STAFF: BellRing,
-};
-
-const formatTime = (iso: string) => {
+// Định dạng thời gian tương đối đồng bộ như trên Web
+const formatTimeAgo = (isoString?: string) => {
+  if (!isoString) return '';
   try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const diffMs = Date.now() - new Date(isoString).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Vừa xong';
+    if (diffMins < 60) return `${diffMins} phút trước`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+    const d = new Date(isoString);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
   } catch {
-    return iso;
+    return '';
   }
 };
 
-const formatDate = (iso: string) => {
+const formatResolvedTime = (isoString?: string) => {
+  if (!isoString) return '';
   try {
-    const d = new Date(iso);
-    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const d = new Date(isoString);
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
   } catch {
-    return iso;
+    return '';
   }
 };
 
 export const RequestsScreen: React.FC<RequestsScreenProps> = ({ onBack }) => {
   const insets = useSafeAreaInsets();
   const dynamicPaddingBottom = insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6;
+  const user = useAuthStore((s) => s.user);
 
   const [calls, setCalls] = useState<CustomerCall[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const [selectedCall, setSelectedCall] = useState<CustomerCall | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Bộ lọc đồng bộ 100% với Web
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'PAYMENT' | 'STAFF'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'PROCESSING' | 'COMPLETED'>('ALL');
+
+  // Thống kê 3 thẻ KPI
   const [summary, setSummary] = useState({ total: 0, pending: 0, processing: 0 });
 
-  const loadCalls = async () => {
-    try {
-      setLoading(true);
-      const res = await api.fetchCustomerCalls({
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
-        type: typeFilter !== 'ALL' ? typeFilter : undefined,
-      });
-      if (res) {
-        setCalls(res.calls || []);
-        setSummary(res.summary || { total: 0, pending: 0, processing: 0 });
+  const loadCalls = useCallback(
+    async (showLoading = true) => {
+      try {
+        if (showLoading) setLoading(true);
+        const res = await api.fetchCustomerCalls({
+          status: statusFilter !== 'ALL' ? statusFilter : undefined,
+          type: typeFilter !== 'ALL' ? typeFilter : undefined,
+          branchId: user?.branchId || undefined,
+        });
+        if (res) {
+          setCalls(res.calls || []);
+          if (res.summary) {
+            setSummary(res.summary);
+          }
+        }
+      } catch (err: any) {
+        log.warn('[RequestsScreen] Load calls failed:', err.message);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch (err: any) {
-      console.log('[RequestsScreen] Load calls failed:', err.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    },
+    [statusFilter, typeFilter, user?.branchId]
+  );
 
   useEffect(() => {
-    loadCalls();
-  }, [statusFilter, typeFilter]);
+    loadCalls(true);
+  }, [loadCalls]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadCalls();
+    loadCalls(false);
   };
 
-  useSocketEvent('call_staff:request', (payload: any) => {
-    console.log('🛎️ [RequestsScreen] New call request:', payload);
-    loadCalls();
+  // Lắng nghe sự kiện Socket.IO khi khách gọi phục vụ hoặc cập nhật
+  useSocketEvent('call_staff:request', (newCall: any) => {
+    soundService.playNewOrderAlert();
+    loadCalls(false);
   });
 
-  const handleStatusChange = async (callId: string, newStatus: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED') => {
+  useSocketEvent('call_staff:updated', () => {
+    loadCalls(false);
+  });
+
+  useSocketEvent('call_staff:update', () => {
+    loadCalls(false);
+  });
+
+  // Xử lý cập nhật trạng thái
+  const handleUpdateStatus = async (
+    callId: string,
+    nextStatus: 'PROCESSING' | 'COMPLETED' | 'CANCELLED'
+  ) => {
     try {
-      const updated = await api.updateCustomerCallStatus(callId, newStatus);
-      setCalls((prev) => prev.map((c) => (c.id === callId ? updated : c)));
-      loadCalls();
+      setActionLoadingId(callId);
+      const updated = await api.updateCustomerCallStatus(callId, nextStatus);
+
+      // Cập nhật danh sách tại chỗ ngay lập tức
+      setCalls((prev) => {
+        if (statusFilter !== 'ALL' && nextStatus !== statusFilter) {
+          return prev.filter((c) => c.id !== callId);
+        }
+        return prev.map((c) => (c.id === callId ? { ...c, ...updated } : c));
+      });
+
+      // Cập nhật thẻ KPI
+      setSummary((prev) => {
+        const wasPending = calls.find((c) => c.id === callId)?.status === 'PENDING';
+        const wasProcessing = calls.find((c) => c.id === callId)?.status === 'PROCESSING';
+
+        let newPending = prev.pending;
+        let newProcessing = prev.processing;
+
+        if (nextStatus === 'PROCESSING') {
+          if (wasPending) newPending = Math.max(0, newPending - 1);
+          newProcessing += 1;
+        } else if (nextStatus === 'COMPLETED' || nextStatus === 'CANCELLED') {
+          if (wasPending) newPending = Math.max(0, newPending - 1);
+          if (wasProcessing) newProcessing = Math.max(0, newProcessing - 1);
+        }
+
+        return {
+          ...prev,
+          pending: newPending,
+          processing: newProcessing,
+        };
+      });
     } catch (err: any) {
-      Alert.alert('Lỗi', err.message || 'Không thể cập nhật trạng thái');
+      Alert.alert('Lỗi', err.message || 'Không thể cập nhật trạng thái yêu cầu');
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
-  const filteredCalls = calls;
-
-  const pendingCount = calls.filter((c) => c.status === 'PENDING').length;
-  const processingCount = calls.filter((c) => c.status === 'PROCESSING').length;
-  const completedCount = calls.filter((c) => c.status === 'COMPLETED').length;
-
   return (
-    <View className="flex-1 bg-background">
-      {/* Header */}
-      <View className="bg-white px-4 pt-2.5 pb-3 border-b border-[#F1F5F9]">
-        <View className="flex-row items-center mb-3">
+    <View className="flex-1 bg-[#F8FAFC]">
+      {/* Header đồng bộ chuẩn mobile & web */}
+      <View className="bg-white px-4 pt-2.5 pb-3 border-b border-[#E2E8F0]">
+        <View className="flex-row items-center gap-3 mb-3">
           <TouchableOpacity
-            className="w-9 h-9 rounded-xl bg-slate-100 items-center justify-center mr-3 border border-border"
+            className="w-9 h-9 rounded-xl bg-slate-100 items-center justify-center border border-border"
             onPress={onBack}
             activeOpacity={0.7}
           >
             <ArrowLeft size={18} color="#0F172A" />
           </TouchableOpacity>
-          <Text className="text-[20px] font-extrabold text-textMain">Yêu Cầu Khách Hàng</Text>
+          <Text className="text-[19px] font-black text-[#0F172A]">Yêu Cầu Khách Hàng</Text>
         </View>
 
-        {/* Summary Cards */}
-        <View className="flex-row gap-2 mb-3">
-          <View className="flex-1 bg-amber-50 rounded-xl p-2.5 border border-amber-200 items-center">
-            <Text className="text-[11px] font-bold text-amber-600">CHỜ XỬ LÝ</Text>
-            <Text className="text-lg font-black text-amber-700 mt-0.5">{pendingCount}</Text>
-          </View>
-          <View className="flex-1 bg-blue-50 rounded-xl p-2.5 border border-blue-200 items-center">
-            <Text className="text-[11px] font-bold text-blue-600">ĐANG XỬ LÝ</Text>
-            <Text className="text-lg font-black text-blue-700 mt-0.5">{processingCount}</Text>
-          </View>
-          <View className="flex-1 bg-emerald-50 rounded-xl p-2.5 border border-emerald-200 items-center">
-            <Text className="text-[11px] font-bold text-emerald-600">HOÀN THÀNH</Text>
-            <Text className="text-lg font-black text-emerald-700 mt-0.5">{completedCount}</Text>
-          </View>
-        </View>
-
-        {/* Filters */}
-        <View className="flex-row gap-2">
-          <TouchableOpacity
-            className={`flex-1 flex-row items-center justify-center gap-1.5 py-2 rounded-xl border ${
-              statusFilter === 'ALL' ? 'bg-teal-600 border-teal-600' : 'bg-white border-border'
-            }`}
-            onPress={() => setStatusFilter('ALL')}
+        {/* 2 Hàng bộ lọc: Loại & Trạng thái (y hệt Web) */}
+        <View className="pt-1 gap-2">
+          {/* Hàng 1: Loại */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ alignItems: 'center', gap: 6 }}
           >
-            <Filter size={14} color={statusFilter === 'ALL' ? 'white' : '#00A389'} />
-            <Text className={`text-[12px] font-bold ${statusFilter === 'ALL' ? 'text-white' : 'text-[#00A389]'}`}>
-              Tất cả
-            </Text>
-          </TouchableOpacity>
-          {(['PENDING', 'PROCESSING', 'COMPLETED', 'CANCELLED'] as const).map((s) => (
-            <TouchableOpacity
-              key={s}
-              className={`flex-1 flex-row items-center justify-center gap-1.5 py-2 rounded-xl border ${
-                statusFilter === s ? 'bg-teal-600 border-teal-600' : 'bg-white border-border'
-              }`}
-              onPress={() => setStatusFilter(s)}
-            >
-              <View className={`w-2 h-2 rounded-full ${STATUS_COLORS[s].includes('amber') ? 'bg-amber-400' : STATUS_COLORS[s].includes('blue') ? 'bg-blue-400' : STATUS_COLORS[s].includes('emerald') ? 'bg-emerald-400' : 'bg-slate-400'}`} />
-              <Text className={`text-[11px] font-bold ${statusFilter === s ? 'text-white' : 'text-textSecondary'}`}>
-                {STATUS_LABELS[s]}
-              </Text>
-            </TouchableOpacity>
-          ))}
+            <Text className="text-[11.5px] font-bold text-[#64748B] mr-1">Loại:</Text>
+            {[
+              { id: 'ALL', label: 'Tất cả' },
+              { id: 'PAYMENT', label: '💳 Gọi thanh toán' },
+              { id: 'STAFF', label: '🙋 Gọi nhân viên' },
+            ].map((t) => {
+              const active = typeFilter === t.id;
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  onPress={() => setTypeFilter(t.id as any)}
+                  className={`px-3 py-1.5 rounded-xl border ${
+                    active ? 'bg-[#00A389] border-[#00A389]' : 'bg-[#F8FAFC] border-[#E2E8F0]'
+                  }`}
+                  activeOpacity={0.7}
+                >
+                  <Text className={`text-[11.5px] font-bold ${active ? 'text-white' : 'text-[#475569]'}`}>
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Hàng 2: Trạng thái */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ alignItems: 'center', gap: 6 }}
+          >
+            <Text className="text-[11.5px] font-bold text-[#64748B] mr-1">Trạng thái:</Text>
+            {[
+              { id: 'ALL', label: 'Tất cả' },
+              { id: 'PENDING', label: 'Chờ xử lý' },
+              { id: 'PROCESSING', label: 'Đang phục vụ' },
+              { id: 'COMPLETED', label: 'Đã hoàn tất' },
+            ].map((s) => {
+              const active = statusFilter === s.id;
+              return (
+                <TouchableOpacity
+                  key={s.id}
+                  onPress={() => setStatusFilter(s.id as any)}
+                  className={`px-3 py-1.5 rounded-xl border ${
+                    active ? 'bg-slate-800 border-slate-800' : 'bg-[#F8FAFC] border-[#E2E8F0]'
+                  }`}
+                  activeOpacity={0.7}
+                >
+                  <Text className={`text-[11.5px] font-bold ${active ? 'text-white' : 'text-[#475569]'}`}>
+                    {s.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
       </View>
 
-      {/* Content */}
+      {/* Danh sách yêu cầu (Card structure chuẩn theo Web) */}
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ padding: 16, paddingBottom: dynamicPaddingBottom + 16 }}
+        contentContainerStyle={{ padding: 14, paddingBottom: dynamicPaddingBottom + 20 }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#00A389']} />}
       >
-        {loading ? (
-          <View className="h-40 items-center justify-center">
+        {loading && !refreshing ? (
+          <View className="py-20 items-center justify-center">
             <ActivityIndicator size="large" color="#00A389" />
+            <Text className="text-[12.5px] font-bold text-slate-400 mt-3">Đang tải danh sách yêu cầu gọi bàn...</Text>
           </View>
-        ) : filteredCalls.length === 0 ? (
-          <View className="bg-white rounded-[20px] p-8 items-center border border-border">
-            <BellRing size={48} color="#94A3B8" className="mb-3" />
-            <Text className="text-[15px] font-bold text-textMain mb-1">Không có yêu cầu nào</Text>
-            <Text className="text-[12.5px] text-textSecondary text-center">
-              {statusFilter !== 'ALL' ? 'Thử chọn "Tất cả" để xem toàn bộ' : 'Khách hàng chưa gửi yêu cầu nào'}
+        ) : calls.length === 0 ? (
+          <View className="py-14 bg-white rounded-3xl border border-dashed border-[#E2E8F0] items-center justify-center p-6">
+            <View className="w-14 h-14 rounded-full bg-emerald-50 items-center justify-center mb-3">
+              <CheckCircle2 size={28} color="#059669" />
+            </View>
+            <Text className="text-[16px] font-black text-[#0F172A] text-center">Không có yêu cầu gọi nào</Text>
+            <Text className="text-[12.5px] text-[#64748B] text-center max-w-[280px] mt-1 leading-relaxed">
+              Hiện tại không có bàn nào đang gọi phục vụ hoặc gọi thanh toán. Khi khách quét mã QR yêu cầu, chuông sẽ reo và hiện tại đây ngay lập tức.
             </Text>
           </View>
         ) : (
-          <View className="gap-3">
-            {filteredCalls.map((call) => (
-              <TouchableOpacity
-                key={call.id}
-                className="bg-white rounded-[18px] p-4 border border-border"
-                style={{
-                  shadowColor: '#0F172A',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.05,
-                  shadowRadius: 8,
-                  elevation: 2,
-                }}
-                activeOpacity={0.85}
-                onPress={() => setSelectedCall(call)}
-              >
-                {/* Header */}
-                <View className="flex-row justify-between items-start mb-3">
-                  <View className="flex-row items-center gap-2">
-                    {(() => {
-                      const CallIcon = TYPE_ICONS[call.type] || BellRing;
-                      return (
-                        <View className={`w-9 h-9 rounded-xl items-center justify-center ${TYPE_COLORS[call.type]}`}>
-                          <CallIcon size={18} color={TYPE_COLORS[call.type]?.includes('green') ? '#059669' : '#00A389'} />
-                        </View>
-                      );
-                    })()}
+          <View className="gap-3.5">
+            {calls.map((call, idx) => {
+              const isPending = call.status === 'PENDING';
+              const isProcessing = call.status === 'PROCESSING';
+              const isCompleted = call.status === 'COMPLETED';
+              const isCancelled = call.status === 'CANCELLED';
+              const isActionLoading = actionLoadingId === call.id;
+
+              const isVietQR =
+                call.paymentMethod === 'VIETQR' ||
+                call.reason?.toLowerCase().includes('vietqr') ||
+                call.reason?.toLowerCase().includes('chuyển khoản');
+
+              return (
+                <View
+                  key={call.id || `call-${call.tableId}-${idx}`}
+                  className={`bg-white rounded-3xl p-4 sm:p-5 border shadow-2xs ${
+                    isPending
+                      ? 'border-rose-300'
+                      : isProcessing
+                      ? 'border-blue-300'
+                      : 'border-[#E2E8F0] opacity-90'
+                  }`}
+                >
+                  {/* Header: Tên Bàn & Trạng thái */}
+                  <View className="flex-row items-start justify-between gap-2 mb-3">
                     <View>
-                      <View className="flex-row items-center gap-2">
-                        <Text className="text-[15px] font-extrabold text-textMain">{call.tableName}</Text>
-                        <View className={`flex-row items-center gap-1 px-2 py-0.5 rounded-full ${STATUS_COLORS[call.status]}`}>
-                          <Text className="text-[10px] font-bold">{STATUS_LABELS[call.status]}</Text>
-                        </View>
+                      <Text className="text-[18px] font-black text-[#0F172A] tracking-tight">
+                        {call.tableName}
+                      </Text>
+                      <View className="flex-row items-center gap-1 mt-0.5">
+                        <Clock size={12} color="#94A3B8" />
+                        <Text className="text-[11.5px] text-[#64748B]">
+                          {formatTimeAgo(call.createdAt)}
+                        </Text>
                       </View>
-                      <Text className="text-[11px] text-textMuted mt-0.5">
-                        {formatDate(call.createdAt)} • {formatTime(call.createdAt)}
+                    </View>
+
+                    {/* Badge trạng thái */}
+                    <View
+                      className={`px-2.5 py-1 rounded-full border ${
+                        isPending
+                          ? 'bg-rose-50 border-rose-200'
+                          : isProcessing
+                          ? 'bg-blue-50 border-blue-200'
+                          : isCompleted
+                          ? 'bg-emerald-50 border-emerald-200'
+                          : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <Text
+                        className={`text-[11px] font-black ${
+                          isPending
+                            ? 'text-rose-700'
+                            : isProcessing
+                            ? 'text-blue-700'
+                            : isCompleted
+                            ? 'text-emerald-700'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {isPending
+                          ? '🔴 Chờ xử lý'
+                          : isProcessing
+                          ? '🟡 Đang phục vụ'
+                          : isCompleted
+                          ? 'Đã xong'
+                          : 'Đã huỷ'}
                       </Text>
                     </View>
                   </View>
-                  <View className="flex-row items-center gap-2">
-                    <View className={`px-2 py-1 rounded-full ${TYPE_COLORS[call.type]}`}>
-                      <Text className="text-[10px] font-bold">{TYPE_LABELS[call.type]}</Text>
-                    </View>
-                    <ChevronRight size={16} color="#94A3B8" />
-                  </View>
-                </View>
 
-                {/* Reason */}
-                <View className="bg-[#F8FAFC] rounded-xl p-3 mb-3">
-                  <Text className="text-[13px] font-bold text-textMain mb-1">{call.reason}</Text>
-                  {call.type === 'PAYMENT' && call.paymentMethod && (
-                    <Text className="text-[11px] text-textSecondary flex-row items-center gap-1">
-                      <DollarSign size={11} />
-                      <Text>Thanh toán: {call.paymentMethod === 'VIETQR' ? 'VietQR' : 'Tiền mặt'}</Text>
+                  {/* Khối Nội dung yêu cầu (Chỉ hiển thị đúng loại và nội dung như Web) */}
+                  <View
+                    className={`p-3.5 rounded-2xl border mb-3 ${
+                      call.type === 'PAYMENT'
+                        ? 'bg-emerald-50/70 border-emerald-200/80'
+                        : 'bg-blue-50/70 border-blue-200/80'
+                    }`}
+                  >
+                    <View className="flex-row items-center gap-1.5 mb-1">
+                      {call.type === 'PAYMENT' ? (
+                        <>
+                          <CreditCard size={14} color="#047857" />
+                          <Text className="text-[11px] font-black text-emerald-800 uppercase tracking-wider">
+                            Yêu Cầu Thanh Toán
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <UserCheck size={14} color="#1D4ED8" />
+                          <Text className="text-[11px] font-black text-blue-800 uppercase tracking-wider">
+                            Yêu Cầu Nhân Viên
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                    <Text
+                      className={`text-[13.5px] font-bold leading-snug ${
+                        call.type === 'PAYMENT' ? 'text-emerald-950' : 'text-blue-950'
+                      }`}
+                    >
+                      {call.type === 'PAYMENT'
+                        ? `Phương thức: ${isVietQR ? 'Chuyển khoản' : 'Tiền mặt'}`
+                        : call.reason}
                     </Text>
-                  )}
-                </View>
-
-                {/* Footer Actions */}
-                <View className="flex-row justify-between items-center pt-2 border-t border-[#F1F5F9]">
-                  <View className="flex-row items-center gap-3 text-[11px] text-textMuted">
-                    <View className="flex-row items-center gap-1">
-                      <User size={12} />
-                      <Text>Bàn: {call.tableName}</Text>
-                    </View>
-                    <View className="flex-row items-center gap-1">
-                      <Clock size={12} />
-                      <Text>{formatTime(call.createdAt)}</Text>
-                    </View>
                   </View>
 
-                  <View className="flex-row items-center gap-2">
-                    {call.status === 'PENDING' && (
+                  {/* Nút hành động */}
+                  <View className="pt-3 border-t border-slate-100 flex-row items-center gap-2">
+                    {isPending && (
                       <TouchableOpacity
-                        className="px-3 py-1.5 bg-blue-100 rounded-lg border border-blue-200"
-                        onPress={() => { handleStatusChange(call.id, 'PROCESSING'); }}
+                        disabled={isActionLoading}
+                        onPress={() => handleUpdateStatus(call.id, 'PROCESSING')}
+                        className="flex-1 h-10 rounded-xl bg-blue-600 items-center justify-center shadow-2xs"
                         activeOpacity={0.8}
                       >
-                        <Text className="text-[11px] font-bold text-blue-700">Nhận việc</Text>
+                        {isActionLoading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text className="text-white font-bold text-[12.5px]">Tiếp nhận</Text>
+                        )}
                       </TouchableOpacity>
                     )}
-                    {call.status === 'PROCESSING' && (
+
+                    {(isPending || isProcessing) && (
                       <TouchableOpacity
-                        className="px-3 py-1.5 bg-emerald-100 rounded-lg border border-emerald-200"
-                        onPress={() => { handleStatusChange(call.id, 'COMPLETED'); }}
+                        disabled={isActionLoading}
+                        onPress={() => handleUpdateStatus(call.id, 'COMPLETED')}
+                        className="flex-1 h-10 rounded-xl bg-[#00A389] items-center justify-center shadow-2xs"
                         activeOpacity={0.8}
                       >
-                        <Text className="text-[11px] font-bold text-emerald-700">Hoàn thành</Text>
+                        {isActionLoading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text className="text-white font-bold text-[12.5px]">Xong</Text>
+                        )}
                       </TouchableOpacity>
                     )}
-                    {(call.status === 'PENDING' || call.status === 'PROCESSING') && (
-                      <TouchableOpacity
-                        className="px-3 py-1.5 bg-rose-100 rounded-lg border border-rose-200"
-                        onPress={() => {
-                          Alert.alert('Huỷ yêu cầu', 'Bạn có chắc muốn huỷ yêu cầu này?', [
-                            { text: 'Giữ lại', style: 'cancel' },
-                            { text: 'Huỷ', style: 'destructive', onPress: () => handleStatusChange(call.id, 'CANCELLED') },
-                          ]);
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <Text className="text-[11px] font-bold text-rose-700">Huỷ</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </ScrollView>
 
-      {/* Detail Modal */}
-      {selectedCall && (
-        <Modal visible={true} transparent animationType="fade">
-          <View className="flex-1 bg-slate-900/60 justify-center items-center p-5">
-            <View className="w-full max-w-[380px] bg-white rounded-3xl p-6 shadow-xl">
-              <View className="flex-row justify-between items-start mb-4">
-                <View>
-                  <View className="flex-row items-center gap-2 mb-1">
-                    {(() => {
-                      const SelectedIcon = TYPE_ICONS[selectedCall.type] || BellRing;
-                      return (
-                        <View className={`w-8 h-8 rounded-xl items-center justify-center ${TYPE_COLORS[selectedCall.type]}`}>
-                          <SelectedIcon size={16} color={TYPE_COLORS[selectedCall.type]?.includes('green') ? '#059669' : '#00A389'} />
-                        </View>
-                      );
-                    })()}
-                    <Text className="font-extrabold text-[18px] text-textMain">{selectedCall.tableName}</Text>
-                  </View>
-                  <View className={`flex-row items-center gap-1 px-2 py-0.5 rounded-full ${STATUS_COLORS[selectedCall.status]}`}>
-                    <Text className="text-[11px] font-bold">{STATUS_LABELS[selectedCall.status]}</Text>
-                  </View>
-                </View>
-                <TouchableOpacity onPress={() => setSelectedCall(null)} className="p-1">
-                  <X size={20} color="#94A3B8" />
-                </TouchableOpacity>
-              </View>
-
-              <View className="space-y-4">
-                <View>
-                  <Text className="text-[11px] font-bold text-textMuted uppercase tracking-wider mb-1">LOẠI YÊU CẦU</Text>
-                  <View className="flex-row items-center gap-2">
-                    <View className={`px-3 py-1.5 rounded-full ${TYPE_COLORS[selectedCall.type]}`}>
-                      <Text className="text-[12px] font-bold">{TYPE_LABELS[selectedCall.type]}</Text>
-                    </View>
-                    {selectedCall.type === 'PAYMENT' && selectedCall.paymentMethod && (
-                      <View className="px-3 py-1.5 bg-slate-100 rounded-full">
-                        <Text className="text-[11px] font-bold text-textSecondary">
-                          {selectedCall.paymentMethod === 'VIETQR' ? 'VietQR' : 'Tiền mặt'}
+                    {isCompleted && (
+                      <View className="w-full py-2 bg-emerald-50 rounded-xl items-center justify-center">
+                        <Text className="text-[12px] font-bold text-emerald-700">
+                          Đã xử lý lúc {formatResolvedTime(call.resolvedAt || call.updatedAt)}
                         </Text>
                       </View>
                     )}
+
+                    {isCancelled && (
+                      <View className="w-full py-2 bg-slate-100 rounded-xl items-center justify-center">
+                        <Text className="text-[12px] font-bold text-slate-500">
+                          Đã huỷ yêu cầu
+                        </Text>
+                      </View>
+                    )}
+
+                    {!isCompleted && !isCancelled && (
+                      <TouchableOpacity
+                        disabled={isActionLoading}
+                        onPress={() => {
+                          Alert.alert('Huỷ yêu cầu', 'Bạn có chắc chắn muốn huỷ yêu cầu này?', [
+                            { text: 'Giữ lại', style: 'cancel' },
+                            {
+                              text: 'Huỷ yêu cầu',
+                              style: 'destructive',
+                              onPress: () => handleUpdateStatus(call.id, 'CANCELLED'),
+                            },
+                          ]);
+                        }}
+                        className="w-10 h-10 rounded-xl bg-slate-100 items-center justify-center"
+                        activeOpacity={0.7}
+                      >
+                        <X size={16} color="#64748B" />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
-
-                <View>
-                  <Text className="text-[11px] font-bold text-textMuted uppercase tracking-wider mb-1">NỘI DUNG</Text>
-                  <Text className="text-[14px] font-semibold text-textMain">{selectedCall.reason}</Text>
-                </View>
-
-                <View className="bg-[#F8FAFC] rounded-xl p-3">
-                  <View className="flex-row justify-between py-1">
-                    <Text className="text-[12px] text-textSecondary flex-row items-center gap-1">
-                      <Clock size={12} />
-                      <Text>Tạo lúc</Text>
-                    </Text>
-                    <Text className="text-[12px] font-bold text-textMain">{formatDate(selectedCall.createdAt)} {formatTime(selectedCall.createdAt)}</Text>
-                  </View>
-                  <View className="flex-row justify-between py-1 border-t border-slate-200">
-                    <Text className="text-[12px] text-textSecondary flex-row items-center gap-1">
-                      <User size={12} />
-                      <Text>Bàn</Text>
-                    </Text>
-                    <Text className="text-[12px] font-bold text-textMain">{selectedCall.tableName}</Text>
-                  </View>
-                  {selectedCall.resolvedAt && (
-                    <View className="flex-row justify-between py-1 border-t border-slate-200">
-                      <Text className="text-[12px] text-textSecondary flex-row items-center gap-1">
-                        <CheckCircle2 size={12} />
-                        <Text>Giải quyết lúc</Text>
-                      </Text>
-                      <Text className="text-[12px] font-bold text-textMain">{formatDate(selectedCall.resolvedAt)} {formatTime(selectedCall.resolvedAt)}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Actions */}
-                <View className="flex-row gap-2 pt-2 border-t border-[#F1F5F9]">
-                  {selectedCall.status === 'PENDING' && (
-                    <TouchableOpacity
-                      className="flex-1 h-11 rounded-xl bg-blue-600 items-center justify-center"
-                      onPress={() => { handleStatusChange(selectedCall.id, 'PROCESSING'); setSelectedCall(null); }}
-                      activeOpacity={0.85}
-                    >
-                      <Text className="text-white text-[13px] font-extrabold">Nhận xử lý</Text>
-                    </TouchableOpacity>
-                  )}
-                  {selectedCall.status === 'PROCESSING' && (
-                    <TouchableOpacity
-                      className="flex-1 h-11 rounded-xl bg-emerald-600 items-center justify-center"
-                      onPress={() => { handleStatusChange(selectedCall.id, 'COMPLETED'); setSelectedCall(null); }}
-                      activeOpacity={0.85}
-                    >
-                      <Text className="text-white text-[13px] font-extrabold">Đã xong</Text>
-                    </TouchableOpacity>
-                  )}
-                  {(selectedCall.status === 'PENDING' || selectedCall.status === 'PROCESSING') && (
-                    <TouchableOpacity
-                      className="flex-1 h-11 rounded-xl bg-rose-600 items-center justify-center"
-                      onPress={() => {
-                        Alert.alert('Huỷ yêu cầu', 'Bạn có chắc muốn huỷ?', [
-                          { text: 'Giữ lại', style: 'cancel' },
-                          { text: 'Huỷ', style: 'destructive', onPress: () => { handleStatusChange(selectedCall.id, 'CANCELLED'); setSelectedCall(null); } },
-                        ]);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text className="text-white text-[13px] font-extrabold">Huỷ</Text>
-                    </TouchableOpacity>
-                  )}
-                  {selectedCall.status === 'COMPLETED' && (
-                    <TouchableOpacity
-                      className="flex-1 h-11 rounded-xl bg-slate-100 items-center justify-center"
-                      onPress={() => setSelectedCall(null)}
-                      activeOpacity={0.8}
-                    >
-                      <Text className="text-[13px] font-bold text-textSecondary">Đã hoàn thành</Text>
-                    </TouchableOpacity>
-                  )}
-                  {selectedCall.status === 'CANCELLED' && (
-                    <TouchableOpacity
-                      className="flex-1 h-11 rounded-xl bg-slate-100 items-center justify-center"
-                      onPress={() => setSelectedCall(null)}
-                      activeOpacity={0.8}
-                    >
-                      <Text className="text-[13px] font-bold text-textSecondary">Đã huỷ</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            </View>
+              );
+            })}
           </View>
-        </Modal>
-      )}
+        )}
+      </ScrollView>
     </View>
   );
 };
-
-export default RequestsScreen;

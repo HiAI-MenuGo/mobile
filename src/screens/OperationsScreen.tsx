@@ -33,6 +33,9 @@ import { HistoryScreen } from './operations/HistoryScreen';
 import { StaffScreen } from './operations/StaffScreen';
 import { RequestsScreen } from './operations/RequestsScreen';
 import { useHistoryStore, OrderHistoryItem } from '../data/historyStore';
+import { useAuthStore } from '../data/authStore';
+import { createTaggedLogger } from '../utils/logger';
+const log = createTaggedLogger('OPS');
 
 interface OperationsScreenProps {
   cart: CartItem[];
@@ -56,6 +59,8 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const dynamicContentPaddingBottom = (insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6) + 76;
+  const currentUser = useAuthStore((s) => s.user);
+  const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'PLATFORM_ADMIN';
   const [currentView, setCurrentView] = useState<OperationSubView>(initialSubView);
   const { items: menuItems } = useMenuStore();
 
@@ -88,7 +93,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
 
     // Gọi API cập nhật trạng thái hết món (Task B-011)
     api.toggleSoldOut(id, nextVal).catch((err) => {
-      console.warn('[OperationsScreen] Failed to toggle sold out via API:', err.message);
+      log.warn('[OperationsScreen] Failed to toggle sold out via API:', err.message);
     });
   };
 
@@ -112,7 +117,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
         setSummary(data);
       }
     } catch (err: any) {
-      console.log('[OperationsScreen] Fallback to local summary');
+      log.info('[OperationsScreen] Fallback to local summary');
     }
   }, []);
 
@@ -123,7 +128,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
         setPendingCallsCount(res.summary?.pending || 0);
       }
     } catch (err) {
-      console.log('[OperationsScreen] Fetch pending calls failed');
+      log.info('[OperationsScreen] Fetch pending calls failed');
     }
   }, []);
 
@@ -224,6 +229,24 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     return <CashierScreen onBack={() => handleSetView('hub')} />;
   }
 
+  // Phân quyền: Các tính năng quản trị chỉ dành cho ADMIN / PLATFORM_ADMIN
+  if (['sold_out', 'inventory', 'staff', 'requests'].includes(currentView) && !isAdmin) {
+    return (
+      <View className="flex-1 bg-background items-center justify-center p-6">
+        <Text className="text-base font-extrabold text-textMain">Không Có Quyền Truy Cập</Text>
+        <Text className="text-xs text-textSecondary mt-1.5 text-center px-4">
+          Tính năng này chỉ dành riêng cho tài khoản Quản trị viên (Admin).
+        </Text>
+        <TouchableOpacity
+          className="mt-5 bg-[#00A389] px-5 py-2.5 rounded-xl active:opacity-80"
+          onPress={() => handleSetView('hub')}
+        >
+          <Text className="text-white font-bold text-xs">Quay về Trung Tâm Thao Tác</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if (currentView === 'sold_out') {
     return (
       <SoldOutScreen
@@ -260,107 +283,87 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
     {
       id: 'order',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Đặt Món / Gọi Món Nhanh',
+      title: 'Đặt Món',
       icon: UtensilsCrossed,
       color: '#059669',
       bgColor: '#ECFDF5',
       borderColor: '#A7F3D0',
-      badge: totalCartCount > 0 ? `${totalCartCount} món trong giỏ` : 'Chính',
-      badgeColor: totalCartCount > 0 ? '#10B981' : '#059669',
-      badgeBg: totalCartCount > 0 ? '#ECFDF5' : '#D1FAE5',
       action: () => handleSetView('order'),
     },
     {
       id: 'orders',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Quản Lý Đơn Hàng',
+      title: 'Quản Lý Đơn',
       icon: ClipboardList,
       color: '#2563EB',
       bgColor: '#EFF6FF',
       borderColor: '#BFDBFE',
-      badge: `${summary.pendingOrders} đang chờ`,
-      badgeColor: '#2563EB',
-      badgeBg: '#EFF6FF',
       action: () => handleSetView('orders'),
     },
     {
       id: 'tables',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Sơ Đồ Bàn',
+      title: 'Quản Lý Bàn',
       icon: UtensilsCrossed,
       color: '#D97706',
       bgColor: '#FFFBEB',
       borderColor: '#FDE68A',
-      badge: 'Sơ đồ live',
-      badgeColor: '#D97706',
-      badgeBg: '#FEF3C7',
       action: () => handleSetView('tables'),
     },
     {
       id: 'cashier',
       group: 'BÁN HÀNG & PHỤC VỤ',
-      title: 'Thanh Toán',
+      title: 'Quản Lý Thanh Toán',
       icon: CreditCard,
       color: '#7C3AED',
       bgColor: '#FAF5FF',
       borderColor: '#E9D5FF',
-      badge: `${summary.pendingPayment} chờ thu`,
-      badgeColor: '#7C3AED',
-      badgeBg: '#FAF5FF',
       action: () => handleSetView('cashier'),
     },
-    {
-      id: 'sold_out',
-      group: 'THỰC ĐƠN & KHO',
-      title: 'Thực Đơn',
-      icon: BookOpen,
-      color: '#059669',
-      bgColor: '#ECFDF5',
-      borderColor: '#A7F3D0',
-      badge: `${summary.menuItemCount} món • ${summary.soldOutCount} hết`,
-      badgeColor: summary.soldOutCount > 0 ? '#E11D48' : '#059669',
-      badgeBg: summary.soldOutCount > 0 ? '#FFF1F2' : '#ECFDF5',
-      action: () => handleSetView('sold_out'),
-    },
-    {
-      id: 'inventory',
-      group: 'THỰC ĐƠN & KHO',
-      title: 'Nguyên Liệu',
-      icon: Package,
-      color: '#D97706',
-      bgColor: '#FEFCE8',
-      borderColor: '#FEF08A',
-      badge: 'Cảnh báo kho',
-      badgeColor: '#D97706',
-      badgeBg: '#FEF3C7',
-      action: () => handleSetView('inventory'),
-    },
-    {
-      id: 'staff',
-      group: 'NHÂN VIÊN & YÊU CẦU',
-      title: 'Nhân Viên',
-      icon: Users,
-      color: '#00A389',
-      bgColor: '#E6F7F4',
-      borderColor: '#99F6E4',
-      badge: 'Gọi phục vụ',
-      badgeColor: '#00A389',
-      badgeBg: '#E6F7F4',
-      action: () => handleSetView('staff'),
-    },
-    {
-      id: 'requests',
-      group: 'NHÂN VIÊN & YÊU CẦU',
-      title: 'Yêu Cầu Khách',
-      icon: MessageSquare,
-      color: '#F59E0B',
-      bgColor: '#FFFBEB',
-      borderColor: '#FDE68A',
-      badge: `${pendingCallsCount > 0 ? pendingCallsCount : 0} mới`,
-      badgeColor: pendingCallsCount > 0 ? '#EF4444' : '#F59E0B',
-      badgeBg: pendingCallsCount > 0 ? '#FEF2F2' : '#FFFBEB',
-      action: () => handleSetView('requests'),
-    },
+    ...(isAdmin
+      ? [
+          {
+            id: 'sold_out',
+            group: 'THỰC ĐƠN & KHO',
+            title: 'Quản Lý Món',
+            icon: BookOpen,
+            color: '#059669',
+            bgColor: '#ECFDF5',
+            borderColor: '#A7F3D0',
+            action: () => handleSetView('sold_out'),
+          },
+          {
+            id: 'inventory',
+            group: 'THỰC ĐƠN & KHO',
+            title: 'Quản Lý Nguyên Liệu',
+            icon: Package,
+            color: '#D97706',
+            bgColor: '#FEFCE8',
+            borderColor: '#FEF08A',
+            action: () => handleSetView('inventory'),
+          },
+          {
+            id: 'staff',
+            group: 'NHÂN VIÊN & YÊU CẦU',
+            title: 'Quản Lý Nhân Viên',
+            icon: Users,
+            color: '#00A389',
+            bgColor: '#E6F7F4',
+            borderColor: '#99F6E4',
+            action: () => handleSetView('staff'),
+          },
+          {
+            id: 'requests',
+            group: 'NHÂN VIÊN & YÊU CẦU',
+            title: 'Yêu Cầu Khách Hàng',
+            icon: MessageSquare,
+            color: '#F59E0B',
+            bgColor: '#FFFBEB',
+            borderColor: '#FDE68A',
+            action: () => handleSetView('requests'),
+          },
+        ]
+      : []),
     {
       id: 'history',
       group: 'LỊCH SỬ & BÁO CÁO',
@@ -369,9 +372,6 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
       color: '#0D9488',
       bgColor: '#F0FDFA',
       borderColor: '#99F6E4',
-      badge: 'Tra cứu đơn',
-      badgeColor: '#0D9488',
-      badgeBg: '#F0FDFA',
       action: () => handleSetView('history'),
     },
   ];
@@ -427,22 +427,7 @@ export const OperationsScreen: React.FC<OperationsScreenProps> = ({
                     </View>
 
                     <View className="flex-1 ml-3.5 mr-2">
-                      <View className="flex-row items-center justify-between">
-                        <Text className="text-[14px] font-extrabold text-textMain flex-1">{item.title}</Text>
-                        {item.badge && (
-                          <View
-                            className="px-2 py-0.5 rounded-full ml-1.5"
-                            style={{ backgroundColor: item.badgeBg }}
-                          >
-                            <Text
-                              className="text-[10.5px] font-extrabold"
-                              style={{ color: item.badgeColor }}
-                            >
-                              {item.badge}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
+                      <Text className="text-[14px] font-extrabold text-textMain">{item.title}</Text>
                     </View>
 
                     <ChevronRight

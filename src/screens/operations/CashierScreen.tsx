@@ -19,12 +19,13 @@ import {
   CheckCircle2,
   Receipt,
   X,
-  RefreshCw,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../services/api';
 import { useSocketEvent } from '../../hooks/useSocket';
 import { soundService } from '../../services/sound';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('CASHIER');
 
 export interface PendingBill {
   sessionId: string;
@@ -84,7 +85,7 @@ export const CashierScreen: React.FC<CashierScreenProps> = ({ onBack }) => {
         );
       }
     } catch (err) {
-      console.log('[CashierScreen] Could not load pending payments:', err);
+      log.info('[CashierScreen] Could not load pending payments:', err);
     } finally {
       setLoading(false);
     }
@@ -96,7 +97,7 @@ export const CashierScreen: React.FC<CashierScreenProps> = ({ onBack }) => {
 
   // Lắng nghe sự kiện thanh toán thành công qua Socket.IO (Task B-010 & Task B-003)
   useSocketEvent('payment:completed', (payload: any) => {
-    console.log('⚡ [CashierScreen] Payment completed event received:', payload);
+    log.info('⚡ [CashierScreen] Payment completed event received:', payload);
     soundService.playPaymentCompleteAlert();
     setBills((prev) => prev.filter((b) => b.sessionId !== payload.sessionId));
 

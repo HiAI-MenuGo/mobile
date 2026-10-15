@@ -8,6 +8,7 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -22,12 +23,16 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../services/api';
 import { useSocketEvent } from '../../hooks/useSocket';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('STAFF');
 
 export interface StaffMember {
   id: string;
   name: string;
-  role: 'ADMIN' | 'MANAGER' | 'KITCHEN' | 'CASHIER';
-  branchId?: string;
+  email?: string;
+  phone?: string | null;
+  role: string;
+  branchId?: string | null;
   branchName?: string;
   isActive: boolean;
   avatarUrl?: string;
@@ -42,7 +47,9 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
   const dynamicPaddingBottom = insets.bottom > 0 ? Math.max(insets.bottom - 16, 6) : 6;
 
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [rolesList, setRolesList] = useState<Array<{ role: string; label: string; scope: string }>>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
@@ -53,11 +60,14 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
   const [tablesList, setTablesList] = useState<Array<{ id: string; name: string; status: string }>>([]);
 
   const formatRole = (role: string) => {
+    const found = rolesList.find((r) => r.role === role);
+    if (found?.label) return found.label;
     const labels: Record<string, string> = {
       ADMIN: 'Chủ quán',
       MANAGER: 'Quản lý',
       KITCHEN: 'Bếp / Pha chế',
       CASHIER: 'Nhân viên',
+      PLATFORM_ADMIN: 'Quản trị hệ thống',
     };
     return labels[role] || role;
   };
@@ -68,34 +78,39 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
       MANAGER: 'bg-blue-100 text-blue-700 border-blue-200',
       KITCHEN: 'bg-orange-100 text-orange-700 border-orange-200',
       CASHIER: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      PLATFORM_ADMIN: 'bg-slate-100 text-slate-700 border-slate-200',
     };
     return colors[role] || 'bg-slate-100 text-slate-700 border-slate-200';
   };
 
-  const loadStaff = async () => {
+  const loadStaff = async (showLoadingIndicator = true) => {
     try {
-      setLoading(true);
-      const data = await api.getProfile();
-      if (data) {
-        const mockStaff: StaffMember[] = [
-          { id: '1', name: 'Nguyễn Văn An', role: 'CASHIER', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-          { id: '2', name: 'Trần Thị Bình', role: 'KITCHEN', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-          { id: '3', name: 'Lê Văn Cường', role: 'CASHIER', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-          { id: '4', name: 'Phạm Thị Dung', role: 'MANAGER', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-        ];
-        setStaffList(mockStaff);
+      if (showLoadingIndicator) setLoading(true);
+      const [staffData, rolesData] = await Promise.all([
+        api.getStaffUsers(),
+        api.getStaffRoles().catch(() => []),
+      ]);
+      if (Array.isArray(rolesData) && rolesData.length > 0) {
+        setRolesList(rolesData);
+      }
+      if (Array.isArray(staffData)) {
+        const mappedStaff: StaffMember[] = staffData.map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          phone: u.phone,
+          role: u.role,
+          branchId: u.branchId,
+          branchName: u.branch?.name || (u.branchId ? 'Chi nhánh chính' : undefined),
+          isActive: u.isActive,
+        }));
+        setStaffList(mappedStaff);
       }
     } catch (err: any) {
-      console.log('[StaffScreen] Using fallback staff data');
-      const mockStaff: StaffMember[] = [
-        { id: '1', name: 'Nguyễn Văn An', role: 'CASHIER', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-        { id: '2', name: 'Trần Thị Bình', role: 'KITCHEN', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-        { id: '3', name: 'Lê Văn Cường', role: 'CASHIER', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-        { id: '4', name: 'Phạm Thị Dung', role: 'MANAGER', branchId: 'default-branch', branchName: 'Chi nhánh 1', isActive: true },
-      ];
-      setStaffList(mockStaff);
+      log.warn('[StaffScreen] Error loading staff:', err?.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -103,11 +118,17 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
     try {
       const data = await api.getTables();
       if (data) {
-        setTablesList(data.map(t => ({ id: t.id, name: t.name, status: t.status })));
+        setTablesList(data.map((t) => ({ id: t.id, name: t.name, status: t.status })));
       }
     } catch (err) {
-      console.log('[StaffScreen] Tables load failed');
+      log.info('[StaffScreen] Tables load failed');
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadStaff(false), loadTables()]);
+    setRefreshing(false);
   };
 
   useEffect(() => {
@@ -116,30 +137,38 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
   }, []);
 
   useSocketEvent('call_staff:request', (payload: { tableId?: string; tableName?: string; type?: string }) => {
-    console.log('🛎️ [StaffScreen] Call staff request:', payload);
+    log.info('🛎️ [StaffScreen] Call staff request:', payload);
   });
 
   const filteredStaff = staffList.filter((s) => {
+    if (s.role === 'PLATFORM_ADMIN') return false;
     const q = searchQuery.toLowerCase().trim();
-    const matchSearch = !q || s.name.toLowerCase().includes(q);
+    const matchSearch =
+      !q ||
+      s.name.toLowerCase().includes(q) ||
+      (s.email && s.email.toLowerCase().includes(q)) ||
+      (s.phone && s.phone.includes(q));
     const matchRole = roleFilter === 'ALL' || s.role === roleFilter;
     return matchSearch && matchRole;
   });
 
   const handleCallStaff = async () => {
     if (!selectedStaff || !callTable) {
-      Alert.alert('Thiếu thông tin', 'Vui lòng chọn bàn');
+      Alert.alert('Thiếu thông tin', 'Vui lòng chọn bàn cần phục vụ');
       return;
     }
+
+    const tableObj = tablesList.find((t) => t.id === callTable);
+    const tableName = tableObj ? tableObj.name : callTable;
 
     try {
       await api.sendCustomerCall({
         tableId: callTable,
-        tableName: callTable,
+        tableName: tableName,
         type: 'STAFF',
-        reason: callReason,
+        reason: `Điều phối: ${selectedStaff.name} phục vụ ${tableName}${callNote.trim() ? ` (${callNote.trim()})` : ''}`,
       });
-      Alert.alert('Thành công', `Đã gửi yêu cầu gọi nhân viên "${selectedStaff.name}" phục vụ ${callTable}`);
+      Alert.alert('Thành công', `Đã gửi yêu cầu gọi nhân viên "${selectedStaff.name}" phục vụ ${tableName}`);
       setShowCallModal(false);
       setSelectedStaff(null);
       setCallTable('');
@@ -169,7 +198,7 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
           >
             <ArrowLeft size={18} color="#0F172A" />
           </TouchableOpacity>
-          <Text className="text-[20px] font-extrabold text-textMain">Nhân Viên</Text>
+          <Text className="text-[20px] font-extrabold text-textMain">Quản Lý Nhân Viên</Text>
         </View>
 
         {/* Search & Filter */}
@@ -191,7 +220,12 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
           </View>
           <TouchableOpacity
             className="bg-white h-[40px] px-4 rounded-xl border border-border flex-row items-center gap-2"
-            onPress={() => setRoleFilter(roleFilter === 'ALL' ? 'CASHIER' : roleFilter === 'CASHIER' ? 'KITCHEN' : 'ALL')}
+            onPress={() => {
+              const roles = ['ALL', 'ADMIN', 'MANAGER', 'CASHIER', 'KITCHEN'];
+              const curIdx = roles.indexOf(roleFilter);
+              const nextIdx = (curIdx + 1) % roles.length;
+              setRoleFilter(roles[nextIdx]);
+            }}
           >
             <Text className="text-[12px] font-bold text-textSecondary">Vai trò:</Text>
             <Text className="text-[12px] font-bold text-textMain">{roleFilter === 'ALL' ? 'Tất cả' : formatRole(roleFilter)}</Text>
@@ -205,6 +239,14 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
         className="flex-1"
         contentContainerStyle={{ padding: 16, paddingBottom: dynamicPaddingBottom + 16 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#00A389']}
+            tintColor="#00A389"
+          />
+        }
       >
         {/* Staff List */}
         <View className="bg-white rounded-[20px] border border-border overflow-hidden">
@@ -216,9 +258,9 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
           ) : filteredStaff.length === 0 ? (
             <View className="p-8 items-center border-t border-border">
               <Users size={48} color="#94A3B8" className="mb-3" />
-              <Text className="text-[15px] font-bold text-textMain mb-1">Chưa có nhân viên</Text>
+              <Text className="text-[15px] font-bold text-textMain mb-1">Không tìm thấy nhân viên</Text>
               <Text className="text-[12.5px] text-textSecondary text-center">
-                Chức năng này chỉ hiển thị danh sách để gọi phục vụ
+                Không có nhân viên nào phù hợp với bộ lọc tìm kiếm
               </Text>
             </View>
           ) : (
@@ -235,7 +277,7 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
                       className="w-11 h-11 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-400 items-center justify-center"
                     >
                       <Text className="text-white font-black text-base">
-                        {staff.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                        {staff.name.split(' ').filter(Boolean).map((n) => n[0]).slice(-2).join('').toUpperCase()}
                       </Text>
                     </View>
                     <View>
@@ -333,30 +375,7 @@ export const StaffScreen: React.FC<StaffScreenProps> = ({ onBack }) => {
                 </View>
 
                 <View>
-                  <Text className="text-[12px] font-bold text-textSecondary mb-1.5">Nhiệm vụ / Yêu cầu *</Text>
-                  <View className="relative">
-                    <TextInput
-                      value={callReason}
-                      editable={false}
-                      className="w-full h-11 pl-3.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold text-textMain"
-                    />
-                    <ChevronDown size={16} className="text-[#64748B] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </View>
-                  <View className="mt-2 max-h-40 overflow-y-auto bg-white rounded-xl border border-slate-200">
-                    {['Khách gọi phục vụ tại bàn', 'Khách yêu cầu thanh toán / in bill', 'Dọn dẹp bàn & chuẩn bị đón khách', 'Tiếp thực / Ra món cho khách', 'Hỗ trợ gấp cho khách tại bàn'].map((r) => (
-                      <TouchableOpacity
-                        key={r}
-                        className={`px-3.5 py-2.5 border-b border-slate-100 ${callReason === r ? 'bg-teal-50' : ''}`}
-                        onPress={() => setCallReason(r)}
-                      >
-                        <Text className={`text-[13px] font-bold ${callReason === r ? 'text-[#00A389]' : 'text-textMain'}`}>{r}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                <View>
-                  <Text className="text-[12px] font-bold text-textSecondary mb-1.5">Ghi chú thêm</Text>
+                  <Text className="text-[12px] font-bold text-textSecondary mb-1.5">Ghi chú thêm (Tùy chọn)</Text>
                   <TextInput
                     value={callNote}
                     onChangeText={setCallNote}

@@ -19,11 +19,12 @@ import {
   RotateCcw,
   Trash2,
   MoreVertical,
-  RefreshCw,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHistoryStore, OrderHistoryItem } from '../../data/historyStore';
 import { api } from '../../services/api';
+import { createTaggedLogger } from '../../utils/logger';
+const log = createTaggedLogger('HISTORY');
 export { OrderHistoryItem };
 
 interface HistoryScreenProps {
@@ -68,7 +69,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onBack, onEditOrde
         });
       }
     } catch (err: any) {
-      console.log('[HistoryScreen] Local history fallback:', err.message);
+      log.info('[HistoryScreen] Local history fallback:', err.message);
     } finally {
       setLoading(false);
     }
